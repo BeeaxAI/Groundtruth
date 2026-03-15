@@ -1,0 +1,61 @@
+"""
+Phase 9: REST API — Document management endpoints.
+Upload, list, delete documents.
+"""
+
+import logging
+from pathlib import Path
+from fastapi import APIRouter, UploadFile, File, HTTPException
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/documents", tags=["documents"])
+
+# Injected at app startup
+_doc_service = None
+
+
+def init(doc_service):
+    global _doc_service
+    _doc_service = doc_service
+
+
+@router.post("/upload")
+async def upload_document(file: UploadFile = File(...)):
+    """Upload a document for grounding. Supports PDF, DOCX, TXT, MD."""
+    if not file.filename:
+        raise HTTPException(400, "No filename provided")
+
+    content_bytes = await file.read()
+
+    if len(content_bytes) == 0:
+        raise HTTPException(400, "File is empty")
+
+    max_size = 20 * 1024 * 1024  # 20MB
+    if len(content_bytes) > max_size:
+        raise HTTPException(400, f"File too large ({len(content_bytes) / 1024 / 1024:.1f}MB). Maximum: 20MB")
+
+    try:
+        result = _doc_service.ingest(file.filename, content_bytes)
+        return result
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except ImportError as e:
+        raise HTTPException(500, str(e))
+    except Exception as e:
+        logger.error(f"Upload failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to process document: {str(e)}")
+
+
+@router.get("")
+async def list_documents():
+    """List all uploaded documents."""
+    return {"documents": _doc_service.get_all_documents()}
+
+
+@router.delete("/{doc_id}")
+async def delete_document(doc_id: str):
+    """Remove a document and its indexed chunks."""
+    if _doc_service.remove(doc_id):
+        return {"status": "removed", "doc_id": doc_id}
+    raise HTTPException(404, "Document not found")

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GroundTruth — Zero-Hallucination Enterprise Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%234ade80' rx='20' width='100' height='100'/><text y='72' x='18' font-size='60' font-weight='bold'>G</text></svg>">
+</head>
+<body>
+    <div class="app">
+        <!-- ===== HEADER ===== -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo__icon">G</div>
+                <span class="logo__text">GroundTruth</span>
+                <span class="logo__badge">Zero Hallucination</span>
+            </div>
+            <div class="header__right">
+                <div class="status">
+                    <div class="status__dot"></div>
+                    <span class="status__text">Connecting...</span>
+                </div>
+                <div class="status">
+                    <span id="doc-count">0 docs</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- ===== SIDEBAR: Documents ===== -->
+        <aside class="sidebar">
+            <div class="sidebar__head">
+                <div class="sidebar__title">Knowledge Base</div>
+                <div class="upload" id="upload-zone">
+                    <div class="upload__icon">+</div>
+                    <div class="upload__text">
+                        Drop files or <strong>click to upload</strong><br>
+                        PDF, DOCX, TXT, MD
+                    </div>
+                </div>
+                <input type="file" id="file-input" multiple accept=".pdf,.docx,.txt,.md" hidden>
+            </div>
+            <div class="doc-list" id="doc-list">
+                <div class="empty-state" id="empty-docs">
+                    Upload documents to enable<br>grounded, zero-hallucination answers.
+                </div>
+            </div>
+        </aside>
+
+        <!-- ===== MAIN: Conversation ===== -->
+        <main class="main">
+            <div class="chat" id="chat">
+                <div class="msg msg--agent">
+                    <div class="msg__label">GroundTruth</div>
+                    <div class="msg__bubble">
+                        Welcome. I'm GroundTruth, your zero-hallucination knowledge agent.
+                        Upload documents to my knowledge base, then ask me anything via voice, camera, or text.
+                        Every answer will be grounded in your sources with full citations. I will never make things up.
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <div class="controls">
+                    <button class="btn-circle" id="btn-mic" title="Hold to speak">&#x1f3a4;</button>
+                    <div class="waveform" id="waveform">
+                        <div class="waveform__bar"></div><div class="waveform__bar"></div>
+                        <div class="waveform__bar"></div><div class="waveform__bar"></div>
+                        <div class="waveform__bar"></div><div class="waveform__bar"></div>
+                        <div class="waveform__bar"></div><div class="waveform__bar"></div>
+                        <div class="waveform__bar"></div><div class="waveform__bar"></div>
+                        <div class="waveform__bar"></div><div class="waveform__bar"></div>
+                        <div class="waveform__bar"></div><div class="waveform__bar"></div>
+                        <div class="waveform__bar"></div><div class="waveform__bar"></div>
+                        <div class="waveform__bar"></div><div class="waveform__bar"></div>
+                        <div class="waveform__bar"></div><div class="waveform__bar"></div>
+                    </div>
+                    <button class="btn-circle" id="btn-cam" title="Toggle camera">&#x1f4f7;</button>
+                </div>
+                <div class="input-row">
+                    <input type="text" class="text-input" id="text-input"
+                           placeholder="Ask a question (grounded answers only)...">
+                    <button class="btn-send" id="btn-send">Send</button>
+                </div>
+            </div>
+        </main>
+
+        <!-- ===== RIGHT PANEL: Camera, Citations, Audit ===== -->
+        <aside class="right-panel">
+            <div class="panel-section">
+                <div class="panel-header">Camera Feed</div>
+                <div class="camera-wrap">
+                    <video class="camera-preview" id="camera-preview" autoplay playsinline muted></video>
+                    <div class="camera-off" id="camera-off">Camera off. Click the camera button to enable vision.</div>
+                </div>
+            </div>
+
+            <div class="panel-section panel-section--grow">
+                <div class="panel-header">
+                    Source Citations
+                    <span class="panel-header__count" id="cite-count">0 sources</span>
+                </div>
+                <div class="citations" id="cite-list">
+                    <div class="empty-state" id="empty-cites">
+                        Citations appear here when<br>GroundTruth answers your questions.
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section" style="max-height:180px; display:flex; flex-direction:column;">
+                <div class="panel-header">Audit Trail</div>
+                <div class="audit" id="audit"></div>
+            </div>
+        </aside>
+    </div>
+
+    <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

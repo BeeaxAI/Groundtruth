@@ -1,0 +1,64 @@
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#4ade80', 'primaryTextColor': '#000', 'lineColor': '#4ade80', 'secondaryColor': '#22c55e20'}}}%%
+
+graph TB
+    subgraph CLIENT["Browser Client"]
+        UI[Web UI<br/>Voice + Vision + Text]
+        MIC[Microphone<br/>16kHz PCM]
+        CAM[Camera<br/>JPEG 1FPS]
+        SPEAKER[Speaker<br/>24kHz PCM]
+    end
+
+    subgraph GCP["Google Cloud Platform"]
+        subgraph CLOUDRUN["Cloud Run"]
+            FASTAPI[FastAPI Server<br/>WebSocket + REST]
+
+            subgraph CORE["GroundTruth Core"]
+                GROUNDING[Grounding Engine<br/>Zero-Hallucination Policy]
+                DOCSTORE[Document Store<br/>Chunking + Retrieval]
+                VALIDATOR[Response Validator<br/>Citation Checker]
+            end
+        end
+
+        GEMINI[Gemini Live API<br/>gemini-2.5-flash-native-audio]
+        GCS[Cloud Storage<br/>Document Persistence]
+    end
+
+    subgraph DOCS["Document Pipeline"]
+        UPLOAD[Upload<br/>PDF / DOCX / TXT / MD]
+        EXTRACT[Text Extraction<br/>PyPDF2 / python-docx]
+        CHUNK[Smart Chunking<br/>Overlapping Segments]
+        INDEX[Keyword Index<br/>BM25-style Scoring]
+    end
+
+    subgraph FLOW["Query Flow — Zero Hallucination"]
+        Q1["1. User speaks/types question"]
+        Q2["2. Retrieve relevant chunks"]
+        Q3["3. Build grounded prompt<br/>(context + strict instructions)"]
+        Q4["4. Gemini generates response<br/>(citations required)"]
+        Q5["5. Validate citations exist"]
+        Q6["6. Deliver with audit trail"]
+    end
+
+    UI -->|WebSocket| FASTAPI
+    MIC -->|Audio Stream| FASTAPI
+    CAM -->|Video Frames| FASTAPI
+    FASTAPI -->|Audio Response| SPEAKER
+
+    FASTAPI --> GROUNDING
+    GROUNDING --> DOCSTORE
+    GROUNDING --> VALIDATOR
+
+    FASTAPI <-->|Live API Session| GEMINI
+    DOCSTORE --> GCS
+
+    UPLOAD --> EXTRACT --> CHUNK --> INDEX --> DOCSTORE
+
+    Q1 --> Q2 --> Q3 --> Q4 --> Q5 --> Q6
+
+    classDef green fill:#4ade80,stroke:#22c55e,color:#000
+    classDef dark fill:#1a1a26,stroke:#4ade80,color:#e8e8f0
+    classDef accent fill:#22c55e20,stroke:#4ade80,color:#4ade80
+
+    class GEMINI,GROUNDING green
+    class UI,FASTAPI,DOCSTORE,VALIDATOR dark
+    class Q1,Q2,Q3,Q4,Q5,Q6 accent
