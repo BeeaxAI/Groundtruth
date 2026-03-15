@@ -108,7 +108,20 @@ class DocumentService:
         return True
 
     def search(self, query: str, top_k: int = 5) -> list[tuple[DocumentChunk, float]]:
-        return self.retriever.search(query, top_k=top_k)
+        results = self.retriever.search(query, top_k=top_k)
+        if not results and self._documents:
+            # BM25 found no keyword matches — fallback to first chunks
+            # so Gemini always has document context to work with
+            fallback = []
+            for doc in self._documents.values():
+                for chunk in doc.chunks[:2]:
+                    fallback.append((chunk, 0.0))
+                    if len(fallback) >= top_k:
+                        break
+                if len(fallback) >= top_k:
+                    break
+            return fallback
+        return results
 
     def get_all_documents(self) -> list[dict]:
         return [doc.to_dict() for doc in self._documents.values()]
@@ -124,3 +137,13 @@ class DocumentService:
 
     def has_documents(self) -> bool:
         return len(self._documents) > 0
+
+    def get_context_preview(self, max_chunks: int = 10) -> list[DocumentChunk]:
+        """Return first chunks from each document for session preloading."""
+        chunks = []
+        for doc in self._documents.values():
+            for chunk in doc.chunks[:3]:
+                chunks.append(chunk)
+                if len(chunks) >= max_chunks:
+                    return chunks
+        return chunks

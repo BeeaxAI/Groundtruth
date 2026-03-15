@@ -71,7 +71,8 @@ class GroundingEngine:
         return SYSTEM_INSTRUCTION + f"\n\n## Currently Loaded Documents:\n{doc_summary}"
 
     def build_grounded_prompt(
-        self, user_query: str, relevant_chunks: list[tuple[DocumentChunk, float]], max_context_chars: int = 4000
+        self, user_query: str, relevant_chunks: list[tuple[DocumentChunk, float]],
+        max_context_chars: int = 4000, has_documents: bool = False,
     ) -> tuple[str, list[Citation], bool]:
         """
         Layer 2 & 3: Build a prompt with retrieved context and citation requirements.
@@ -82,11 +83,19 @@ class GroundingEngine:
             has_context: Whether relevant documents were found
         """
         if not relevant_chunks:
-            prompt = (
-                f'The user asked: "{user_query}"\n\n'
-                "No relevant documents are loaded or no matching content was found. "
-                "Tell the user you can only answer based on uploaded documents and suggest they upload relevant ones."
-            )
+            if has_documents:
+                prompt = (
+                    f'The user asked: "{user_query}"\n\n'
+                    "Documents are uploaded but no matching content was found for this query. "
+                    "Respond naturally to the user's message. If they are greeting you, greet them back and let them know "
+                    "you have their documents loaded and are ready to answer questions about them."
+                )
+            else:
+                prompt = (
+                    f'The user asked: "{user_query}"\n\n'
+                    "No documents are uploaded yet. "
+                    "Tell the user you can only answer based on uploaded documents and suggest they upload relevant ones."
+                )
             return prompt, [], False
 
         context_parts = []

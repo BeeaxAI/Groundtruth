@@ -36,11 +36,15 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
+MAX_RECONNECTS = 5
+
 
 class LiveSessionHandler:
     """
     Manages a single WebSocket client session with Gemini Live API.
     Handles audio streaming, video frames, text queries, and grounding.
+    Auto-reconnects to Gemini when the session expires.
+    Pre-loads document context so voice queries can reference documents.
     """
 
     def __init__(self, ws: WebSocket, gemini_client, doc_service, grounding_engine, settings):
@@ -55,6 +59,7 @@ class LiveSessionHandler:
         self._accumulated_transcript = ""
         self._last_citations = []
         self._active = False
+        self._session_alive = False
 
     async def run(self):
         """Main session lifecycle."""
@@ -67,17 +72,7 @@ class LiveSessionHandler:
             return
 
         try:
-            async with self._connect_gemini() as session:
-                self.session = session
-                self._active = True
-                await self._send({"type": "status", "message": "connected"})
-
-                # Start receiving from Gemini in background
-                self._receive_task = asyncio.create_task(self._receive_from_gemini())
-
-                # Main loop: receive from client
-                await self._receive_from_client()
-
+            await self._session_loop()
         except WebSocketDisconnect:
             logger.info("WebSocket client disconnected")
         except Exception as e:
@@ -85,6 +80,63 @@ class LiveSessionHandler:
             await self._send_safe({"type": "error", "message": str(e)})
         finally:
             await self._cleanup()
+
+    # ---- Session Loop with Auto-Reconnect ----
+
+    async def _session_loop(self):
+        """Connect to Gemini with auto-reconnect on session expiry."""
+        reconnect_count = 0
+
+        while reconnect_count <= MAX_RECONNECTS:
+            try:
+                async with self._connect_gemini() as session:
+                    self.session = session
+                    self._active = True
+                    self._session_alive = True
+                    reconnect_count = 0
+                    await self._send({"type": "status", "message": "connected"})
+
+                    # Pre-load document content so voice queries have context
+                    await self._preload_document_context()
+
+                    self._receive_task = asyncio.create_task(self._receive_from_gemini())
+                    client_task = asyncio.create_task(self._receive_from_client())
+
+                    done, pending = await asyncio.wait(
+                        [self._receive_task, client_task],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    for task in pending:
+                        task.cancel()
+                        try:
+                            await task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+
+                    if client_task in done:
+                        exc = client_task.exception()
+                        if exc:
+                            raise exc
+                        return
+
+                    reconnect_count += 1
+                    logger.info(f"Gemini session expired, auto-reconnecting ({reconnect_count}/{MAX_RECONNECTS})...")
+                    self._accumulated_transcript = ""
+                    self._last_citations = []
+                    await self._send_safe({"type": "status", "message": "reconnecting"})
+                    await asyncio.sleep(0.5)
+
+            except WebSocketDisconnect:
+                raise
+            except Exception as e:
+                reconnect_count += 1
+                logger.error(f"Session error, reconnecting ({reconnect_count}/{MAX_RECONNECTS}): {e}")
+                if reconnect_count > MAX_RECONNECTS:
+                    await self._send_safe({"type": "error", "message": "Connection lost. Please refresh the page."})
+                    break
+                await self._send_safe({"type": "status", "message": "reconnecting"})
+                await asyncio.sleep(1)
 
     # ---- Phase 12: Gemini Live API Connection ----
 
@@ -115,6 +167,38 @@ class LiveSessionHandler:
             model=self.settings.gemini_live_model,
             config=config,
         )
+
+    # ---- Pre-load Document Context for Voice ----
+
+    async def _preload_document_context(self):
+        """
+        Pre-load document content into the Gemini session so voice queries
+        can reference documents without waiting for context injection.
+        """
+        chunks = self.doc_service.get_context_preview(max_chunks=10)
+        if not chunks:
+            return
+
+        context_parts = []
+        for i, chunk in enumerate(chunks):
+            context_parts.append(f"[Source {i + 1}: {chunk.doc_name}]\n{chunk.content}")
+
+        context_str = "\n\n---\n\n".join(context_parts)
+
+        preload_msg = (
+            "[PRELOADED DOCUMENT CONTEXT — Use these sources to answer voice questions. "
+            "Cite with [Source N] when referencing.]\n\n"
+            f"{context_str}"
+        )
+
+        try:
+            await self.session.send_client_content(
+                turns=[{"role": "user", "parts": [{"text": preload_msg}]}],
+                turn_complete=False,
+            )
+            logger.info(f"Pre-loaded {len(chunks)} document chunks into Gemini session")
+        except Exception as e:
+            logger.warning(f"Failed to preload document context: {e}")
 
     # ---- Phase 13 & 14: Receive from Gemini (audio + transcriptions) ----
 
@@ -148,9 +232,9 @@ class LiveSessionHandler:
                 if content.input_transcription and content.input_transcription.text:
                     user_text = content.input_transcription.text
                     await self._send({"type": "transcript_input", "text": user_text})
-
-                    # Inject document context for the detected speech
-                    await self._inject_context(user_text)
+                    # Note: Do NOT call _inject_context here — sending client_content
+                    # while audio is streaming causes session interruption/crash.
+                    # Document context is pre-loaded at session start instead.
 
                 # Turn complete
                 if content.turn_complete:
@@ -166,10 +250,7 @@ class LiveSessionHandler:
             pass
         except Exception as e:
             logger.error(f"Gemini receive error: {e}", exc_info=True)
-            await self._send_safe({"type": "error", "message": "Session expired. Please refresh the page."})
-            await self._send_safe({"type": "turn_complete", "validation": {
-                "status": "no_context", "valid": False, "reason": "Session expired"
-            }})
+            self._session_alive = False
 
     async def _handle_turn_complete(self):
         if self._accumulated_transcript and self._last_citations:
@@ -177,13 +258,20 @@ class LiveSessionHandler:
                 self._accumulated_transcript, self._last_citations
             )
             self.grounding.log_query(
-                "voice_query", self._last_citations, True, validation,
+                self._accumulated_transcript, self._last_citations, True, validation,
                 self._accumulated_transcript,
             )
             await self._send({"type": "turn_complete", "validation": validation.to_dict()})
         else:
+            has_docs = self.doc_service.has_documents()
+            if has_docs:
+                status = "no_match"
+                reason = "No matching content found in uploaded documents"
+            else:
+                status = "no_context"
+                reason = "No documents uploaded"
             await self._send({"type": "turn_complete", "validation": {
-                "status": "no_context", "valid": True, "reason": "Voice response completed"
+                "status": status, "valid": True, "reason": reason
             }})
 
         self._accumulated_transcript = ""
@@ -220,23 +308,43 @@ class LiveSessionHandler:
         if not clean_text:
             return
 
-        # Retrieve and inject context
+        if not self._session_alive or (self._receive_task and self._receive_task.done()):
+            self._session_alive = False
+            await self._send({"type": "error", "message": "Reconnecting to Gemini..."})
+            await self._send({"type": "turn_complete", "validation": {
+                "status": "no_context", "valid": False, "reason": "Session reconnecting"
+            }})
+            return
+
         relevant = self.doc_service.search(clean_text, top_k=self.settings.max_retrieval_chunks)
         grounded_prompt, citations, has_context = self.grounding.build_grounded_prompt(
-            clean_text, relevant, max_context_chars=self.settings.max_context_chars
+            clean_text, relevant, max_context_chars=self.settings.max_context_chars,
+            has_documents=self.doc_service.has_documents(),
         )
 
         self._last_citations = citations
 
         try:
-            await self.session.send_client_content(
-                turns=[{"role": "user", "parts": [{"text": grounded_prompt}]}],
-                turn_complete=True,
+            await asyncio.wait_for(
+                self.session.send_client_content(
+                    turns=[{"role": "user", "parts": [{"text": grounded_prompt}]}],
+                    turn_complete=True,
+                ),
+                timeout=15.0,
             )
             logger.info(f"Sent text query to Gemini: '{clean_text[:60]}'")
+        except asyncio.TimeoutError:
+            logger.error("Timeout sending text to Gemini — session likely dead")
+            self._session_alive = False
+            await self._send({"type": "error", "message": "Session timed out. Reconnecting..."})
+            await self._send({"type": "turn_complete", "validation": {
+                "status": "no_context", "valid": False, "reason": "Session timed out"
+            }})
+            return
         except Exception as e:
             logger.error(f"Failed to send text to Gemini: {e}")
-            await self._send({"type": "error", "message": f"Session error: {str(e)}. Please refresh the page."})
+            self._session_alive = False
+            await self._send({"type": "error", "message": "Reconnecting to Gemini..."})
             await self._send({"type": "turn_complete", "validation": {
                 "status": "no_context", "valid": False, "reason": str(e)
             }})
@@ -250,7 +358,7 @@ class LiveSessionHandler:
             })
 
     async def _inject_context(self, user_speech: str):
-        """Inject document context when user speaks (detected via transcription)."""
+        """Inject additional document context when user speaks."""
         if not self.doc_service.has_documents():
             return
 
@@ -259,24 +367,28 @@ class LiveSessionHandler:
             return
 
         grounded_prompt, citations, has_context = self.grounding.build_grounded_prompt(
-            user_speech, relevant, max_context_chars=self.settings.max_context_chars
+            user_speech, relevant, max_context_chars=self.settings.max_context_chars,
+            has_documents=True,
         )
 
         self._last_citations = citations
 
         if has_context:
-            await self.session.send_client_content(
-                turns=[{
-                    "role": "user",
-                    "parts": [{"text": f"[DOCUMENT CONTEXT — use these sources to answer]\n{grounded_prompt}"}],
-                }],
-                turn_complete=False,
-            )
-            await self._send({
-                "type": "citations",
-                "citations": [c.to_dict() for c in citations],
-                "has_context": True,
-            })
+            try:
+                await self.session.send_client_content(
+                    turns=[{
+                        "role": "user",
+                        "parts": [{"text": f"[DOCUMENT CONTEXT — use these sources to answer]\n{grounded_prompt}"}],
+                    }],
+                    turn_complete=False,
+                )
+                await self._send({
+                    "type": "citations",
+                    "citations": [c.to_dict() for c in citations],
+                    "has_context": True,
+                })
+            except Exception as e:
+                logger.warning(f"Failed to inject context: {e}")
 
     # ---- Main Client Message Router ----
 
@@ -294,6 +406,8 @@ class LiveSessionHandler:
                 await self._handle_text(msg.get("text", ""))
             elif msg_type == "context_inject":
                 await self._inject_context(msg.get("query", ""))
+            elif msg_type == "doc_update":
+                await self._preload_document_context()
             elif msg_type == "ping":
                 await self._send({"type": "pong"})
 
@@ -316,6 +430,5 @@ class LiveSessionHandler:
                 await self._receive_task
             except (asyncio.CancelledError, Exception):
                 pass
-        # Session is closed automatically by the async context manager
         self.session = None
         logger.info("WebSocket session cleaned up")

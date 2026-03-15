@@ -48,7 +48,8 @@ async def text_query(request: QueryRequest):
 
     # Build grounded prompt
     grounded_prompt, citations, has_context = _grounding_engine.build_grounded_prompt(
-        clean_query, relevant, max_context_chars=_settings.max_context_chars
+        clean_query, relevant, max_context_chars=_settings.max_context_chars,
+        has_documents=_doc_service.has_documents(),
     )
 
     system_instruction = _grounding_engine.build_system_instruction(

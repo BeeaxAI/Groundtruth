@@ -103,7 +103,13 @@ function handleMessage(msg) {
             break;
 
         case 'status':
-            if (msg.message === 'connected') addAudit('Gemini Live session active');
+            if (msg.message === 'connected') {
+                addAudit('Gemini Live session active');
+                setStatus('connected', 'Connected');
+            } else if (msg.message === 'reconnecting') {
+                addAudit('Session expired, auto-reconnecting...');
+                setStatus('processing', 'Reconnecting...');
+            }
             break;
 
         case 'error':
@@ -146,6 +152,7 @@ function addGroundingBadge(v) {
         grounded: ['grounded', '\u2713 Grounded'],
         partially_grounded: ['partial', '\u26A0 Partially grounded'],
         ungrounded: ['ungrounded', '\u2717 Ungrounded'],
+        no_match: ['no-context', '\u2139 No matching content'],
         no_context: ['no-context', '\u2139 No documents'],
     };
     const [cls, label] = statusMap[v.status] || statusMap.no_context;
@@ -323,6 +330,8 @@ async function uploadFile(file) {
             addDocItem(data);
             refreshDocCount();
             addAudit(`Uploaded: ${data.name} (${data.chunks} chunks)`);
+            // Push document content into the active Gemini session
+            wsSend({ type: 'doc_update' });
         } else {
             alert(`Upload failed: ${data.detail}`);
         }

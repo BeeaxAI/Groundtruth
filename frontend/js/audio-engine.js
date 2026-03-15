@@ -122,6 +122,9 @@ export class AudioPlayer {
         if (!this._context) {
             this._context = new AudioContext({ sampleRate: 24000 });
         }
+        if (this._context.state === 'suspended') {
+            await this._context.resume();
+        }
 
         while (this._queue.length > 0) {
             const pcmBuf = this._queue.shift();
