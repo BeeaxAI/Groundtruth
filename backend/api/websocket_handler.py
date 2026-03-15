@@ -166,7 +166,10 @@ class LiveSessionHandler:
             pass
         except Exception as e:
             logger.error(f"Gemini receive error: {e}", exc_info=True)
-            await self._send_safe({"type": "error", "message": f"Live API error: {str(e)}"})
+            await self._send_safe({"type": "error", "message": "Session expired. Please refresh the page."})
+            await self._send_safe({"type": "turn_complete", "validation": {
+                "status": "no_context", "valid": False, "reason": "Session expired"
+            }})
 
     async def _handle_turn_complete(self):
         if self._accumulated_transcript and self._last_citations:
@@ -225,10 +228,19 @@ class LiveSessionHandler:
 
         self._last_citations = citations
 
-        await self.session.send_client_content(
-            turns=[{"role": "user", "parts": [{"text": grounded_prompt}]}],
-            turn_complete=True,
-        )
+        try:
+            await self.session.send_client_content(
+                turns=[{"role": "user", "parts": [{"text": grounded_prompt}]}],
+                turn_complete=True,
+            )
+            logger.info(f"Sent text query to Gemini: '{clean_text[:60]}'")
+        except Exception as e:
+            logger.error(f"Failed to send text to Gemini: {e}")
+            await self._send({"type": "error", "message": f"Session error: {str(e)}. Please refresh the page."})
+            await self._send({"type": "turn_complete", "validation": {
+                "status": "no_context", "valid": False, "reason": str(e)
+            }})
+            return
 
         if citations:
             await self._send({

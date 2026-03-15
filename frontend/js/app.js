@@ -18,6 +18,7 @@ let player = new AudioPlayer();
 let camera = null;
 let currentAgentMsg = null;
 let reconnectTimer = null;
+let isPaused = false;
 
 // ============================================================
 // DOM References
@@ -31,6 +32,7 @@ const dom = {
     textInput:   $('#text-input'),
     btnSend:     $('#btn-send'),
     btnMic:      $('#btn-mic'),
+    btnPause:    $('#btn-pause'),
     btnCam:      $('#btn-cam'),
     uploadZone:  $('#upload-zone'),
     fileInput:   $('#file-input'),
@@ -107,6 +109,7 @@ function handleMessage(msg) {
         case 'error':
             addMsg('agent', `Error: ${msg.message}`);
             addAudit(`Error: ${msg.message}`);
+            setStatus('error', 'Error');
             break;
 
         case 'pong':
@@ -186,30 +189,56 @@ async function sendTextQuery(text) {
 }
 
 // ============================================================
-// Audio (Phase 18-19)
+// Audio (Phase 18-19) — Click-to-toggle mic + Pause
 // ============================================================
-async function startRecording() {
-    recorder = new AudioRecorder(
-        (pcm16) => wsSend({ type: 'audio', data: abTo64(pcm16.buffer) }),
-        (bars) => renderWaveform(bars),
-    );
-    const ok = await recorder.start();
-    if (ok) {
-        dom.btnMic.classList.add('btn-circle--recording');
-        setStatus('processing', 'Listening...');
-        addAudit('Microphone on');
+async function toggleMic() {
+    if (recorder && recorder.isRecording) {
+        // Stop recording
+        recorder.stop();
+        recorder = null;
+        isPaused = false;
+        dom.btnMic.classList.remove('btn-circle--recording');
+        dom.btnPause.style.display = 'none';
+        dom.btnPause.classList.remove('btn-circle--active');
+        clearWaveform();
+        setStatus('connected', 'Connected');
+        addAudit('Microphone off');
+    } else {
+        // Start recording
+        recorder = new AudioRecorder(
+            (pcm16) => {
+                if (!isPaused) wsSend({ type: 'audio', data: abTo64(pcm16.buffer) });
+            },
+            (bars) => { if (!isPaused) renderWaveform(bars); },
+        );
+        const ok = await recorder.start();
+        if (ok) {
+            isPaused = false;
+            dom.btnMic.classList.add('btn-circle--recording');
+            dom.btnPause.style.display = '';
+            setStatus('processing', 'Listening...');
+            addAudit('Microphone on');
+        }
     }
 }
 
-function stopRecording() {
-    if (recorder) {
-        recorder.stop();
-        recorder = null;
+function togglePause() {
+    if (!recorder || !recorder.isRecording) return;
+    isPaused = !isPaused;
+    if (isPaused) {
+        dom.btnPause.classList.add('btn-circle--active');
+        dom.btnPause.innerHTML = '&#x25b6;&#xfe0f;';
+        dom.btnPause.title = 'Resume';
+        clearWaveform();
+        setStatus('connected', 'Paused');
+        addAudit('Microphone paused');
+    } else {
+        dom.btnPause.classList.remove('btn-circle--active');
+        dom.btnPause.innerHTML = '&#x23f8;&#xfe0f;';
+        dom.btnPause.title = 'Pause';
+        setStatus('processing', 'Listening...');
+        addAudit('Microphone resumed');
     }
-    dom.btnMic.classList.remove('btn-circle--recording');
-    clearWaveform();
-    setStatus('connected', 'Connected');
-    addAudit('Microphone off');
 }
 
 // ============================================================
@@ -398,12 +427,11 @@ function b64toAB(b64) {
 dom.btnSend.addEventListener('click', () => sendTextQuery(dom.textInput.value));
 dom.textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendTextQuery(dom.textInput.value); });
 
-// Mic: hold to record
-dom.btnMic.addEventListener('mousedown', startRecording);
-dom.btnMic.addEventListener('mouseup', stopRecording);
-dom.btnMic.addEventListener('mouseleave', () => { if (recorder?.isRecording) stopRecording(); });
-dom.btnMic.addEventListener('touchstart', (e) => { e.preventDefault(); startRecording(); });
-dom.btnMic.addEventListener('touchend', (e) => { e.preventDefault(); stopRecording(); });
+// Mic: click to toggle
+dom.btnMic.addEventListener('click', toggleMic);
+
+// Pause: click to pause/resume
+dom.btnPause.addEventListener('click', togglePause);
 
 dom.btnCam.addEventListener('click', toggleCamera);
 
