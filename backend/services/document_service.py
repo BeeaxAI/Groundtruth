@@ -5,6 +5,7 @@ Now powered by Super Memory for compressed, semantic-aware retrieval.
 """
 
 import asyncio
+import re
 import logging
 from typing import Optional
 from core.models import Document, DocumentChunk, Citation
@@ -251,3 +252,232 @@ class DocumentService:
         if self.super_memory:
             return self.super_memory.get_document_insights(doc_id)
         return {}
+
+    # ================================================================
+    # Feature: Smart Follow-up Suggestions
+    # ================================================================
+
+    def generate_follow_ups(self, query: str, citations: list, top_n: int = 3) -> list[str]:
+        """
+        Generate smart follow-up questions from neighboring document content.
+
+        Algorithm:
+          1. Find chunks adjacent to cited chunks (unexplored territory)
+          2. Extract key topics from those neighbors
+          3. Pull uncovered keywords from Super Memory hierarchy
+          4. Extract key phrases from uncited chunks (fallback)
+
+        This guides users to explore MORE of their documents,
+        making the app feel intelligent and proactive.
+        """
+        if not citations or not self._documents:
+            return []
+
+        cited_ids = {c.chunk_id for c in citations}
+        cited_docs = {c.doc_id for c in citations}
+        query_words = set(re.findall(r'\w+', query.lower()))
+        stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+                      'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would',
+                      'could', 'should', 'may', 'might', 'can', 'shall', 'to', 'of',
+                      'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into',
+                      'and', 'or', 'but', 'not', 'no', 'if', 'then', 'than', 'that',
+                      'this', 'what', 'which', 'who', 'how', 'his', 'her', 'its',
+                      'he', 'she', 'it', 'they', 'them', 'we', 'you', 'your'}
+
+        # Strategy 1: Topics from adjacent (uncited) chunks
+        adjacent_topics = []
+        for doc_id in cited_docs:
+            doc = self._documents.get(doc_id)
+            if not doc:
+                continue
+            for i, chunk in enumerate(doc.chunks):
+                if chunk.chunk_id not in cited_ids:
+                    continue
+                # Look at the next 1-3 chunks (unexplored content)
+                for offset in [1, 2, 3]:
+                    idx = i + offset
+                    if idx < len(doc.chunks) and doc.chunks[idx].chunk_id not in cited_ids:
+                        content = doc.chunks[idx].content
+                        # Extract meaningful sentences/phrases (relaxed filter)
+                        sentences = [
+                            s.strip() for s in re.split(r'[.!?\n]+', content)
+                            if 10 < len(s.strip()) < 200
+                        ]
+                        if sentences:
+                            raw = sentences[0]
+                            # Strip leading numbering like "3." or "10."
+                            raw = re.sub(r'^\d+[\.\)]\s*', '', raw).strip()
+                            if len(raw) < 8:
+                                continue
+                            topic_words = set(re.findall(r'\w+', raw.lower()))
+                            # Ensure low overlap with query (= new topic)
+                            overlap = len(topic_words & query_words) / max(len(query_words), 1)
+                            if overlap < 0.5:
+                                # Trim to a reasonable display length
+                                display = raw.rstrip('.,;:')
+                                if len(display) > 80:
+                                    display = display[:77].rsplit(' ', 1)[0] + '...'
+                                adjacent_topics.append(display)
+
+        # Strategy 2: Uncovered keywords from Super Memory hierarchy
+        uncovered_keywords = []
+        if self.super_memory:
+            for doc_id in cited_docs:
+                kws = self.super_memory.hierarchy.get_keywords(doc_id)
+                for kw, weight in sorted(kws.items(), key=lambda x: -x[1]):
+                    if kw not in query_words and len(kw) > 3 and weight > 0.1:
+                        uncovered_keywords.append(kw)
+
+        # Strategy 3: Key phrases from uncited chunks in cited documents
+        uncited_phrases = []
+        if not adjacent_topics and not uncovered_keywords:
+            seen_phrases = set()
+            for doc_id in cited_docs:
+                doc = self._documents.get(doc_id)
+                if not doc:
+                    continue
+                for chunk in doc.chunks:
+                    if chunk.chunk_id in cited_ids:
+                        continue
+                    # Extract meaningful multi-word phrases
+                    words = [w for w in re.findall(r'\w+', chunk.content.lower())
+                             if w not in stop_words and len(w) > 3]
+                    # Find bigrams as topics
+                    for j in range(len(words) - 1):
+                        phrase = f"{words[j]} {words[j+1]}"
+                        if phrase not in query_words and phrase not in seen_phrases:
+                            uncited_phrases.append(phrase)
+                            seen_phrases.add(phrase)
+                            break
+
+        # Build suggestions with deduplication
+        templates = [
+            "What do the documents say about {}?",
+            "Can you explain more about {}?",
+            "Tell me about {} from the sources.",
+        ]
+        suggestions = []
+        seen = set()
+
+        # Adjacent chunk topics first (most contextually relevant)
+        for topic in adjacent_topics:
+            if len(suggestions) >= top_n:
+                break
+            key = topic[:25].lower()
+            if key not in seen:
+                # If it already reads like a question, use it directly
+                is_question = bool(re.match(
+                    r'^(What|How|Why|When|Where|Who|Is|Are|Was|Were|Do|Does|Did|Can|Could|Tell)\s',
+                    topic, re.IGNORECASE
+                ))
+                if is_question:
+                    suggestions.append(topic.rstrip('?') + '?')
+                else:
+                    suggestions.append(f"Tell me about {topic[0].lower() + topic[1:]}")
+                seen.add(key)
+
+        # Fill with keyword-based questions
+        for kw in uncovered_keywords:
+            if len(suggestions) >= top_n:
+                break
+            if kw not in seen:
+                tmpl = templates[len(suggestions) % len(templates)]
+                suggestions.append(tmpl.format(kw))
+                seen.add(kw)
+
+        # Fill with uncited phrase questions
+        for phrase in uncited_phrases:
+            if len(suggestions) >= top_n:
+                break
+            if phrase not in seen:
+                tmpl = templates[len(suggestions) % len(templates)]
+                suggestions.append(tmpl.format(phrase))
+                seen.add(phrase)
+
+        return suggestions[:top_n]
+
+    # ================================================================
+    # Feature: Document Health Score
+    # ================================================================
+
+    def get_document_health(self, doc_id: str = None) -> dict:
+        """
+        Compute document health scores (0-100) for quality assessment.
+
+        Health Score Formula:
+          H = 0.25·R + 0.25·D + 0.25·E + 0.25·S
+
+        Where:
+          R = Content Richness  (content length + chunk count)
+          D = Keyword Diversity (unique meaningful terms)
+          E = Embedding Coverage (chunks with semantic embeddings)
+          S = Structure Quality (page count + file type bonus)
+        """
+        if doc_id:
+            doc = self._documents.get(doc_id)
+            if not doc:
+                return {}
+            return self._compute_doc_health(doc)
+        return {did: self._compute_doc_health(d) for did, d in self._documents.items()}
+
+    def _compute_doc_health(self, doc: Document) -> dict:
+        """Compute health score for a single document."""
+        scores = {}
+
+        # 1. Content Richness (25%) — content length + chunk count
+        content_score = min(len(doc.content) / 1000, 70)  # 1000+ chars = 70
+        chunk_bonus = min(len(doc.chunks) * 6, 30)  # up to 30 for chunk count
+        scores["content_richness"] = min(content_score + chunk_bonus, 100)
+
+        # 2. Keyword Diversity (25%) — unique meaningful terms
+        if self.super_memory:
+            kws = self.super_memory.hierarchy.get_keywords(doc.doc_id)
+            scores["keyword_diversity"] = min(len(kws) * 2, 100)
+        else:
+            words = doc.content.lower().split()
+            unique = len(set(w for w in words if len(w) > 3))
+            scores["keyword_diversity"] = min(
+                (unique / max(len(words), 1)) * 300, 100
+            )
+
+        # 3. Embedding Coverage (25%) — chunks with semantic embeddings
+        if self.super_memory and self.super_memory._embedding_enabled:
+            embedded = sum(
+                1 for c in doc.chunks
+                if c.chunk_id in self.super_memory.embeddings._embeddings
+            )
+            scores["embedding_coverage"] = (
+                embedded / max(len(doc.chunks), 1)
+            ) * 100
+        else:
+            scores["embedding_coverage"] = 0
+
+        # 4. Structure Quality (25%) — page count, file type bonus
+        struct_score = 40  # base
+        if doc.page_count > 1:
+            struct_score += min(doc.page_count * 5, 30)
+        if doc.file_type in ('pdf', 'docx'):
+            struct_score += 20
+        elif doc.file_type in ('txt', 'md'):
+            struct_score += 10
+        scores["structure_quality"] = min(struct_score, 100)
+
+        # Overall health
+        overall = sum(scores.values()) / len(scores)
+
+        if overall >= 80:
+            level = "excellent"
+        elif overall >= 60:
+            level = "good"
+        elif overall >= 40:
+            level = "fair"
+        else:
+            level = "poor"
+
+        return {
+            "doc_id": doc.doc_id,
+            "name": doc.name,
+            "overall_score": round(overall, 1),
+            "level": level,
+            "breakdown": {k: round(v, 1) for k, v in scores.items()},
+        }

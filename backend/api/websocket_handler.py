@@ -108,9 +108,12 @@ class LiveSessionHandler:
                     client_task = asyncio.create_task(
                         self._receive_from_client()
                     )
+                    keepalive_task = asyncio.create_task(
+                        self._keepalive_loop()
+                    )
 
                     done, pending = await asyncio.wait(
-                        [self._receive_task, client_task],
+                        [self._receive_task, client_task, keepalive_task],
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
@@ -132,8 +135,10 @@ class LiveSessionHandler:
                         f"Gemini session expired, auto-reconnecting "
                         f"({reconnect_count}/{MAX_RECONNECTS})..."
                     )
+                    # Don't clear _last_citations here — they persist for
+                    # the current query's turn_complete validation.
+                    # Only clear transcript (Gemini restarts fresh).
                     self._accumulated_transcript = ""
-                    self._last_citations = []
                     await self._send_safe({"type": "status", "message": "reconnecting"})
                     await asyncio.sleep(0.5)
 
@@ -238,25 +243,49 @@ class LiveSessionHandler:
             self._session_alive = False
 
     async def _handle_turn_complete(self):
+        has_docs = self.doc_service.has_documents()
+
         if self._accumulated_transcript and self._last_citations:
+            # We have both a response and citations — validate grounding
             validation = self.grounding.validate_response(
                 self._accumulated_transcript, self._last_citations
+            )
+            confidence = self.grounding.compute_confidence(
+                validation, self._last_citations
             )
             self.grounding.log_query(
                 self._accumulated_transcript, self._last_citations, True, validation,
                 self._accumulated_transcript,
             )
-            await self._send({"type": "turn_complete", "validation": validation.to_dict()})
-        else:
-            has_docs = self.doc_service.has_documents()
-            if has_docs:
-                status = "no_match"
-                reason = "No matching content found in uploaded documents"
-            else:
-                status = "no_context"
-                reason = "No documents uploaded"
+
+            validation_dict = validation.to_dict()
+            validation_dict["confidence"] = confidence
+
+            # Generate smart follow-up suggestions
+            follow_ups = self.doc_service.generate_follow_ups(
+                self._accumulated_transcript, self._last_citations
+            )
+
+            await self._send({
+                "type": "turn_complete",
+                "validation": validation_dict,
+                "follow_ups": follow_ups,
+            })
+        elif self._accumulated_transcript and has_docs:
+            # Gemini responded, docs exist but no specific citations matched.
             await self._send({"type": "turn_complete", "validation": {
-                "status": status, "valid": True, "reason": reason
+                "status": "no_match", "valid": True,
+                "reason": "Documents uploaded but no specific match for this query",
+                "confidence": {"score": 10, "level": "low", "breakdown": {}},
+            }})
+        else:
+            # No documents uploaded at all
+            status = "no_match" if has_docs else "no_context"
+            reason = ("No matching content found in uploaded documents"
+                      if has_docs else "No documents uploaded")
+            await self._send({"type": "turn_complete", "validation": {
+                "status": status, "valid": True, "reason": reason,
+                "confidence": {"score": 0, "level": "none", "breakdown": {}},
             }})
 
         self._accumulated_transcript = ""
@@ -377,6 +406,29 @@ class LiveSessionHandler:
                 })
             except Exception as e:
                 logger.warning(f"Failed to inject context: {e}")
+
+    # ---- Keep-alive to prevent Gemini session timeout ----
+
+    async def _keepalive_loop(self):
+        """Send periodic silent pings to Gemini to prevent session expiry."""
+        try:
+            while self._active and self._session_alive:
+                await asyncio.sleep(15)  # ping every 15 seconds
+                if self.session and self._session_alive:
+                    try:
+                        # Send an empty audio frame as heartbeat
+                        # (silent PCM = all zeros, minimal size)
+                        silent_frame = b'\x00' * 320  # 10ms of 16kHz PCM silence
+                        await self.session.send_realtime_input(
+                            audio=types.Blob(
+                                data=silent_frame,
+                                mime_type=f"audio/pcm;rate={self.settings.input_sample_rate}",
+                            )
+                        )
+                    except Exception:
+                        break
+        except asyncio.CancelledError:
+            pass
 
     # ---- Main Client Message Router ----
 

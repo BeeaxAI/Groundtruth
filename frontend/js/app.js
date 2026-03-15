@@ -95,6 +95,7 @@ function handleMessage(msg) {
 
         case 'turn_complete':
             if (msg.validation) addGroundingBadge(msg.validation);
+            if (msg.follow_ups) renderFollowUps(msg.follow_ups);
             setStatus('connected', 'Connected');
             break;
 
@@ -148,6 +149,7 @@ function updateAgentMsg(newText, fullText) {
 
 function addGroundingBadge(v) {
     if (!currentAgentMsg) return;
+    const bubble = currentAgentMsg.querySelector('.msg__bubble');
     const statusMap = {
         grounded: ['grounded', '\u2713 Grounded'],
         partially_grounded: ['partial', '\u26A0 Partially grounded'],
@@ -156,11 +158,133 @@ function addGroundingBadge(v) {
         no_context: ['no-context', '\u2139 No documents'],
     };
     const [cls, label] = statusMap[v.status] || statusMap.no_context;
+
+    // Footer container: badge + confidence meter side by side
+    const footer = document.createElement('div');
+    footer.className = 'msg__footer';
+
+    // Grounding badge
     const badge = document.createElement('div');
     badge.className = `grounding-badge grounding-badge--${cls}`;
     badge.textContent = `${label}${v.cited_sources?.length ? ` (${v.cited_sources.length} sources)` : ''}`;
-    currentAgentMsg.querySelector('.msg__bubble').appendChild(badge);
+    footer.appendChild(badge);
+
+    // Confidence Score Meter (radial gauge)
+    if (v.confidence && v.confidence.score > 0) {
+        footer.appendChild(createConfidenceMeter(v.confidence));
+    }
+
+    bubble.appendChild(footer);
     currentAgentMsg = null;
+}
+
+function createConfidenceMeter(conf) {
+    const score = conf.score;
+    const r = 18;
+    const circ = 2 * Math.PI * r;  // ~113.1
+    const offset = circ * (1 - score / 100);
+    const color = score >= 75 ? 'var(--accent)' : score >= 45 ? 'var(--warning)' : 'var(--danger)';
+    const level = score >= 75 ? 'High' : score >= 45 ? 'Medium' : 'Low';
+
+    const cov = conf.breakdown?.citation_coverage ?? 0;
+    const src = conf.breakdown?.source_quality ?? 0;
+    const gnd = conf.breakdown?.grounding_status ?? 0;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'confidence-wrapper';
+
+    const meter = document.createElement('div');
+    meter.className = 'confidence-meter';
+    meter.innerHTML = `
+        <svg viewBox="0 0 44 44" class="confidence-svg">
+            <circle cx="22" cy="22" r="${r}" fill="none" stroke="var(--border)" stroke-width="3"/>
+            <circle cx="22" cy="22" r="${r}" fill="none" stroke="${color}" stroke-width="3"
+                    stroke-linecap="round" stroke-dasharray="${circ.toFixed(1)}"
+                    stroke-dashoffset="${offset.toFixed(1)}" transform="rotate(-90 22 22)"
+                    class="confidence-arc"/>
+        </svg>
+        <div class="confidence-text">
+            <span class="confidence-value" style="color:${color}">${Math.round(score)}%</span>
+            <span class="confidence-label">confidence</span>
+        </div>
+    `;
+    wrapper.appendChild(meter);
+
+    // Info button with tooltip breakdown
+    const infoBtn = document.createElement('button');
+    infoBtn.className = 'confidence-info-btn';
+    infoBtn.textContent = 'i';
+    infoBtn.setAttribute('aria-label', 'Confidence score breakdown');
+
+    const tooltip = document.createElement('div');
+    tooltip.className = 'confidence-tooltip';
+    tooltip.innerHTML = `
+        <div class="confidence-tooltip__title">${level} Confidence (${Math.round(score)}%)</div>
+        <div class="confidence-tooltip__row">
+            <span>Citation Coverage</span>
+            <div class="confidence-tooltip__bar"><div class="confidence-tooltip__fill" style="width:${cov}%;background:${cov >= 60 ? 'var(--accent)' : cov >= 30 ? 'var(--warning)' : 'var(--danger)'}"></div></div>
+            <span class="confidence-tooltip__val">${Math.round(cov)}%</span>
+        </div>
+        <div class="confidence-tooltip__row">
+            <span>Source Quality</span>
+            <div class="confidence-tooltip__bar"><div class="confidence-tooltip__fill" style="width:${src}%;background:${src >= 60 ? 'var(--accent)' : src >= 30 ? 'var(--warning)' : 'var(--danger)'}"></div></div>
+            <span class="confidence-tooltip__val">${Math.round(src)}%</span>
+        </div>
+        <div class="confidence-tooltip__row">
+            <span>Grounding Status</span>
+            <div class="confidence-tooltip__bar"><div class="confidence-tooltip__fill" style="width:${gnd}%;background:${gnd >= 60 ? 'var(--accent)' : gnd >= 30 ? 'var(--warning)' : 'var(--danger)'}"></div></div>
+            <span class="confidence-tooltip__val">${Math.round(gnd)}%</span>
+        </div>
+        <div class="confidence-tooltip__formula">C = 0.4\u00D7Coverage + 0.3\u00D7Sources + 0.3\u00D7Grounding</div>
+    `;
+
+    infoBtn.onclick = (e) => {
+        e.stopPropagation();
+        // Close any other open tooltips
+        document.querySelectorAll('.confidence-tooltip.show').forEach(t => {
+            if (t !== tooltip) t.classList.remove('show');
+        });
+        tooltip.classList.toggle('show');
+    };
+
+    wrapper.appendChild(infoBtn);
+    wrapper.appendChild(tooltip);
+
+    // Close tooltip when clicking elsewhere
+    document.addEventListener('click', () => tooltip.classList.remove('show'), { once: true });
+
+    return wrapper;
+}
+
+// ============================================================
+// Smart Follow-up Suggestions
+// ============================================================
+function renderFollowUps(suggestions) {
+    if (!suggestions || !suggestions.length) return;
+    // Remove previous follow-up chips
+    document.querySelectorAll('.follow-ups').forEach(el => el.remove());
+
+    const container = document.createElement('div');
+    container.className = 'follow-ups';
+
+    const label = document.createElement('span');
+    label.className = 'follow-ups__label';
+    label.textContent = 'Follow up:';
+    container.appendChild(label);
+
+    suggestions.forEach(q => {
+        const chip = document.createElement('button');
+        chip.className = 'follow-up-chip';
+        chip.textContent = q;
+        chip.onclick = () => {
+            container.remove();
+            sendTextQuery(q);
+        };
+        container.appendChild(chip);
+    });
+
+    dom.chat.appendChild(container);
+    dom.chat.scrollTop = dom.chat.scrollHeight;
 }
 
 async function sendTextQuery(text) {
@@ -332,6 +456,8 @@ async function uploadFile(file) {
             addAudit(`Uploaded: ${data.name} (${data.chunks} chunks)`);
             // Push document content into the active Gemini session
             wsSend({ type: 'doc_update' });
+            // Fetch document health score (async, non-blocking)
+            fetchDocHealth(data.doc_id);
         } else {
             alert(`Upload failed: ${data.detail}`);
         }
@@ -346,6 +472,8 @@ async function loadDocuments() {
         const data = await res.json();
         data.documents.forEach(d => addDocItem(d));
         refreshDocCount();
+        // Fetch health scores for all docs
+        if (data.documents.length > 0) fetchAllDocHealth();
     } catch (e) { /* ignore on first load */ }
 }
 
@@ -361,6 +489,7 @@ function addDocItem(doc) {
         <div class="doc-item__info">
             <div class="doc-item__name">${esc(doc.name)}</div>
             <div class="doc-item__meta">${doc.chunks} chunks \u00B7 ${(doc.content_length/1024).toFixed(1)}KB</div>
+            <div class="doc-health-bar"><div class="doc-health-bar__fill"></div></div>
         </div>
         <button class="doc-item__remove" title="Remove">\u00D7</button>
     `;
@@ -379,6 +508,54 @@ async function removeDoc(id, el) {
 function refreshDocCount() {
     const n = dom.docList.querySelectorAll('.doc-item').length;
     dom.docCount.textContent = `${n} doc${n !== 1 ? 's' : ''}`;
+}
+
+// ============================================================
+// Document Health Score
+// ============================================================
+async function fetchDocHealth(docId) {
+    try {
+        const res = await fetch(`${API}/api/documents/${docId}/health`);
+        if (res.ok) {
+            const health = await res.json();
+            updateDocHealth(docId, health);
+        }
+    } catch (e) { /* non-critical */ }
+}
+
+async function fetchAllDocHealth() {
+    try {
+        const res = await fetch(`${API}/api/documents/health`);
+        if (res.ok) {
+            const data = await res.json();
+            for (const [docId, health] of Object.entries(data.scores)) {
+                updateDocHealth(docId, health);
+            }
+        }
+    } catch (e) { /* non-critical */ }
+}
+
+function updateDocHealth(docId, health) {
+    const item = dom.docList.querySelector(`[data-doc-id="${docId}"]`);
+    if (!item) return;
+
+    const fill = item.querySelector('.doc-health-bar__fill');
+    if (!fill) return;
+
+    const score = health.overall_score || 0;
+    const level = health.level || (score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'fair' : 'poor');
+    const color = score >= 80 ? 'var(--accent)' : score >= 60 ? '#4ade80' : score >= 40 ? 'var(--warning)' : 'var(--danger)';
+    fill.style.width = `${score}%`;
+    fill.style.background = color;
+    fill.title = `Health: ${Math.round(score)}% (${level})\nRichness: ${health.breakdown?.content_richness ?? '—'}%\nDiversity: ${health.breakdown?.keyword_diversity ?? '—'}%\nEmbeddings: ${health.breakdown?.embedding_coverage ?? '—'}%\nStructure: ${health.breakdown?.structure_quality ?? '—'}%`;
+
+    // Update meta text to include health
+    const meta = item.querySelector('.doc-item__meta');
+    if (meta && !meta.dataset.healthSet) {
+        const label = score >= 80 ? 'Excellent' : score >= 60 ? 'Good' : score >= 40 ? 'Fair' : 'Low';
+        meta.textContent += ` \u00B7 ${Math.round(score)}% ${label}`;
+        meta.dataset.healthSet = '1';
+    }
 }
 
 // ============================================================
@@ -411,7 +588,8 @@ function esc(t) {
 }
 
 function fmtCitations(t) {
-    return t.replace(/\[Source\s+(\d+)\]/g, '<span class="citation-ref">[Source $1]</span>');
+    // Highlight all "Source N" references regardless of bracket/comma format
+    return t.replace(/Source\s+(\d+)/g, '<span class="citation-ref">Source $1</span>');
 }
 
 function trunc(s, n) { return s.length > n ? s.slice(0, n) + '...' : s; }

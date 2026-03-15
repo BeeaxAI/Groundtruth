@@ -41,10 +41,10 @@ _POPCOUNT_TABLE = np.array([bin(i).count('1')
 # ============================================================
 #
 # MATH:
-#   Given embedding e ∈ ℝᵈ (d=768 from Gemini text-embedding-004):
+#   Given embedding e ∈ ℝᵈ (d=3072 from gemini-embedding-001):
 #
 #   Quantization:  b_i = 1 if e_i > 0, else 0
-#   Pack into bytes: 768 bits → 96 bytes
+#   Pack into bytes: 3072 bits → 384 bytes
 #
 #   Similarity via Hamming distance:
 #     sim(a, b) = 1 - hamming(a, b) / d
@@ -57,7 +57,7 @@ _POPCOUNT_TABLE = np.array([bin(i).count('1')
 #   This means Hamming similarity ≈ cosine similarity.
 #
 # COMPRESSION:
-#   768 × float32 = 3,072 bytes → 768 bits = 96 bytes
+#   3072 × float32 = 12,288 bytes → 3072 bits = 384 bytes
 #   Ratio: 32x compression per chunk
 #
 # SPEED:

@@ -63,6 +63,12 @@ async def delete_document(doc_id: str):
     raise HTTPException(404, "Document not found")
 
 
+@router.get("/health")
+async def all_document_health():
+    """Get health scores for all documents — richness, diversity, embedding coverage."""
+    return {"scores": _doc_service.get_document_health()}
+
+
 @router.get("/memory/stats")
 async def memory_stats():
     """Get Super Memory compression statistics."""
@@ -73,6 +79,15 @@ async def memory_stats():
 async def memory_duplicates():
     """Detect near-duplicate documents using SimHash fingerprinting."""
     return {"duplicates": _doc_service.find_duplicates()}
+
+
+@router.get("/{doc_id}/health")
+async def single_document_health(doc_id: str):
+    """Get health score for a single document."""
+    health = _doc_service.get_document_health(doc_id)
+    if not health:
+        raise HTTPException(404, "Document not found")
+    return health
 
 
 @router.get("/{doc_id}/insights")

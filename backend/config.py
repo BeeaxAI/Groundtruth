@@ -24,7 +24,7 @@ class Settings(BaseSettings):
         description="Model for text-only queries (REST fallback)",
     )
     embedding_model: str = Field(
-        default="text-embedding-004",
+        default="gemini-embedding-001",
         description="Model for document embeddings (Super Memory)",
     )
     gemini_temperature: float = Field(default=0.1, ge=0.0, le=2.0)

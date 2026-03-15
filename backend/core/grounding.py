@@ -145,8 +145,11 @@ class GroundingEngine:
                 reason="No context provided — response not expected to have citations",
             )
 
-        citation_refs = re.findall(r'\[Source\s+(\d+)\]', response_text)
-        cited_indices = set(int(ref) for ref in citation_refs)
+        # Match all "Source N" references in any format:
+        #   [Source 1], [Source 1, Source 2], [Source 1, Source 2, Source 3]
+        # Simply find every occurrence of "Source" followed by a number
+        all_refs = re.findall(r'Source\s*(\d+)', response_text)
+        cited_indices = set(int(ref) for ref in all_refs)
         available_indices = set(c.index for c in citations)
 
         # Detect hallucinated citations (referencing non-existent sources)
@@ -203,6 +206,63 @@ class GroundingEngine:
             total_available=len(available_indices),
             reason=f"Cited {len(cited_indices)} of {len(available_indices)} available sources",
         )
+
+    def compute_confidence(self, result: GroundingResult, citations: list[Citation]) -> dict:
+        """
+        Compute confidence score (0-100%) for a grounded response.
+
+        Mathematical model:
+          C = w₁·Cov + w₂·Src + w₃·Gnd
+
+        Where:
+          Cov = citation coverage = |cited| / |available| × 100     (w₁=0.4)
+          Src = source quality   = min(|cited| × 25, 100)           (w₂=0.3)
+          Gnd = grounding status = {grounded:100, partial:60, ...}  (w₃=0.3)
+
+        Produces a single confidence percentage that updates in
+        real-time and displays as a radial gauge in the UI.
+        """
+        if not citations or result.status == GroundingStatus.NO_CONTEXT:
+            return {"score": 0, "level": "none", "breakdown": {}}
+
+        # Factor 1: Citation coverage (40% weight)
+        if result.total_available > 0:
+            coverage = len(result.cited_sources) / result.total_available * 100
+        else:
+            coverage = 0
+
+        # Factor 2: Source count quality (30% weight)
+        source_score = min(len(result.cited_sources) * 25, 100)
+
+        # Factor 3: Grounding status (30% weight)
+        status_map = {
+            GroundingStatus.GROUNDED: 100,
+            GroundingStatus.PARTIALLY_GROUNDED: 60,
+            GroundingStatus.UNGROUNDED: 20,
+            GroundingStatus.NO_CONTEXT: 0,
+        }
+        status_score = status_map.get(result.status, 0)
+
+        # Weighted sum
+        total = coverage * 0.4 + source_score * 0.3 + status_score * 0.3
+        total = round(min(max(total, 0), 100), 1)
+
+        if total >= 75:
+            level = "high"
+        elif total >= 45:
+            level = "medium"
+        else:
+            level = "low"
+
+        return {
+            "score": total,
+            "level": level,
+            "breakdown": {
+                "citation_coverage": round(coverage, 1),
+                "source_quality": round(source_score, 1),
+                "grounding_status": round(status_score, 1),
+            },
+        }
 
     def log_query(self, query: str, citations: list[Citation], has_context: bool, grounding: Optional[GroundingResult] = None, response_preview: str = ""):
         record = QueryRecord(
