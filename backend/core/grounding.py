@@ -13,7 +13,6 @@ The brain of GroundTruth's zero-hallucination architecture.
 import re
 import logging
 from typing import Optional
-from datetime import datetime
 from core.models import Citation, GroundingResult, GroundingStatus, QueryRecord, DocumentChunk
 
 logger = logging.getLogger(__name__)
@@ -110,7 +109,8 @@ class GroundingEngine:
             tag = f"[Source {idx}: {chunk.doc_name}]"
             context_parts.append(f"{tag}\n{chunk.content}")
 
-            excerpt = chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content
+            excerpt = chunk.content[:200] + \
+                "..." if len(chunk.content) > 200 else chunk.content
             citations.append(Citation(
                 index=idx,
                 doc_name=chunk.doc_name,
@@ -172,7 +172,8 @@ class GroundingEngine:
                 "cannot find",
                 "don't cover",
             ]
-            is_refusal = any(phrase in response_text.lower() for phrase in refusal_phrases)
+            is_refusal = any(phrase in response_text.lower()
+                             for phrase in refusal_phrases)
 
             if is_refusal:
                 return GroundingResult(

@@ -4,7 +4,6 @@ Centralized, validated configuration using pydantic-settings.
 Supports .env files, environment variables, and defaults.
 """
 
-import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
@@ -26,14 +25,15 @@ class Settings(BaseSettings):
     )
     embedding_model: str = Field(
         default="text-embedding-004",
-        description="Model for generating document embeddings (Super Memory)",
+        description="Model for document embeddings (Super Memory)",
     )
     gemini_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     gemini_max_output_tokens: int = Field(default=2048, ge=1)
 
     # --- Google Cloud ---
     google_cloud_project: str = Field(default="", description="GCP project ID")
-    gcs_bucket_name: str = Field(default="", description="GCS bucket for documents")
+    gcs_bucket_name: str = Field(
+        default="", description="GCS bucket for documents")
     google_genai_use_vertexai: bool = Field(default=False)
 
     # --- Server ---
@@ -61,8 +61,12 @@ class Settings(BaseSettings):
     enable_audit_log: bool = Field(default=True)
 
     # --- Paths ---
-    base_dir: Path = Field(default_factory=lambda: Path(__file__).parent.parent)
-    frontend_dir: Path = Field(default_factory=lambda: Path(__file__).parent.parent / "frontend")
+    base_dir: Path = Field(
+        default_factory=lambda: Path(__file__).parent.parent
+    )
+    frontend_dir: Path = Field(
+        default_factory=lambda: Path(__file__).parent.parent / "frontend"
+    )
 
     @field_validator("chunk_overlap")
     @classmethod

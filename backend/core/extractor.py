@@ -34,7 +34,8 @@ class TextExtractor:
     def extract(self, content_bytes: bytes, filename: str) -> ExtractionResult:
         ext = Path(filename).suffix.lower()
         if ext not in SUPPORTED_EXTENSIONS:
-            raise ValueError(f"Unsupported file type: {ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}")
+            raise ValueError(
+                f"Unsupported file type: {ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}")
 
         extractors = {
             ".txt": self._extract_txt,
@@ -47,11 +48,13 @@ class TextExtractor:
         result.file_type = ext.lstrip(".")
 
         if not result.text.strip():
-            raise ValueError(f"No text could be extracted from '{filename}'. The file may be empty or image-based.")
+            raise ValueError(
+                f"No text could be extracted from '{filename}'. The file may be empty or image-based.")
 
         if len(result.text) > MAX_TEXT_LENGTH:
             result.text = result.text[:MAX_TEXT_LENGTH]
-            result.warnings.append(f"Text truncated to {MAX_TEXT_LENGTH} characters")
+            result.warnings.append(
+                f"Text truncated to {MAX_TEXT_LENGTH} characters")
 
         return result
 
@@ -62,13 +65,15 @@ class TextExtractor:
                 return ExtractionResult(text=text, file_type="txt")
             except UnicodeDecodeError:
                 continue
-        raise ValueError("Could not decode text file with any supported encoding")
+        raise ValueError(
+            "Could not decode text file with any supported encoding")
 
     def _extract_pdf(self, content_bytes: bytes) -> ExtractionResult:
         try:
             from PyPDF2 import PdfReader
         except ImportError:
-            raise ImportError("PyPDF2 is required for PDF processing. Install with: pip install PyPDF2")
+            raise ImportError(
+                "PyPDF2 is required for PDF processing. Install with: pip install PyPDF2")
 
         reader = PdfReader(io.BytesIO(content_bytes))
         texts = []
@@ -100,7 +105,8 @@ class TextExtractor:
         try:
             from docx import Document
         except ImportError:
-            raise ImportError("python-docx is required for DOCX processing. Install with: pip install python-docx")
+            raise ImportError(
+                "python-docx is required for DOCX processing. Install with: pip install python-docx")
 
         doc = Document(io.BytesIO(content_bytes))
         paragraphs = []
@@ -112,7 +118,8 @@ class TextExtractor:
         # Also extract from tables
         for table in doc.tables:
             for row in table.rows:
-                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                row_text = " | ".join(cell.text.strip()
+                                      for cell in row.cells if cell.text.strip())
                 if row_text:
                     paragraphs.append(row_text)
 

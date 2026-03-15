@@ -14,14 +14,16 @@ logger = logging.getLogger(__name__)
 
 # Known prompt injection patterns
 INJECTION_PATTERNS = [
-    re.compile(r'ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?)', re.I),
+    re.compile(
+        r'ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?)', re.I),
     re.compile(r'(system\s+prompt|system\s+message|system\s+instruction)', re.I),
     re.compile(r'you\s+are\s+now\s+(a|an)\s+', re.I),
     re.compile(r'(forget|disregard|override)\s+(everything|all|your)', re.I),
     re.compile(r'new\s+(instructions?|role|persona|identity)', re.I),
     re.compile(r'(pretend|act\s+as|roleplay|assume\s+the\s+role)', re.I),
     re.compile(r'(do\s+not|don\'t)\s+(follow|obey)\s+(the|your)', re.I),
-    re.compile(r'(reveal|show|display|print|output)\s+(your\s+)?(system|hidden|secret|internal)', re.I),
+    re.compile(
+        r'(reveal|show|display|print|output)\s+(your\s+)?(system|hidden|secret|internal)', re.I),
     re.compile(r'<\s*(system|prompt|instruction|admin)', re.I),
     re.compile(r'\[\s*(SYSTEM|ADMIN|OVERRIDE|INJECT)', re.I),
 ]
@@ -44,7 +46,8 @@ class InputSanitizer:
 
         injection_found = self._check_injection(text)
         if injection_found:
-            warnings.append(f"Potential prompt injection detected: {injection_found}")
+            warnings.append(
+                f"Potential prompt injection detected: {injection_found}")
             logger.warning(f"Injection attempt in query: {injection_found}")
 
         return text, warnings
@@ -60,8 +63,10 @@ class InputSanitizer:
                 injection_matches.extend(str(m) for m in matches)
 
         if injection_matches:
-            warnings.append(f"Document contains {len(injection_matches)} potential injection patterns (treated as data)")
-            logger.warning(f"Injection patterns in document: {injection_matches[:3]}")
+            warnings.append(
+                f"Document contains {len(injection_matches)} potential injection patterns (treated as data)")
+            logger.warning(
+                f"Injection patterns in document: {injection_matches[:3]}")
 
         return text, warnings
 
@@ -85,7 +90,8 @@ class RateLimiter:
         now = time.time()
         cutoff = now - self.window
 
-        self._requests[client_id] = [t for t in self._requests[client_id] if t > cutoff]
+        self._requests[client_id] = [
+            t for t in self._requests[client_id] if t > cutoff]
 
         remaining = self.max_requests - len(self._requests[client_id])
         if remaining <= 0:
@@ -97,6 +103,7 @@ class RateLimiter:
     def cleanup(self):
         now = time.time()
         cutoff = now - self.window
-        empty_keys = [k for k, v in self._requests.items() if all(t <= cutoff for t in v)]
+        empty_keys = [k for k, v in self._requests.items()
+                      if all(t <= cutoff for t in v)]
         for k in empty_keys:
             del self._requests[k]

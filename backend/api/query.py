@@ -44,12 +44,16 @@ async def text_query(request: QueryRequest):
         raise HTTPException(400, "Query is empty after sanitization")
 
     # Retrieve relevant chunks (hybrid: BM25 + semantic + hierarchical)
-    relevant = await _doc_service.search_hybrid(clean_query, top_k=_settings.max_retrieval_chunks)
+    relevant = await _doc_service.search_hybrid(
+        clean_query, top_k=_settings.max_retrieval_chunks
+    )
 
-    # Build grounded prompt
-    grounded_prompt, citations, has_context = _grounding_engine.build_grounded_prompt(
-        clean_query, relevant, max_context_chars=_settings.max_context_chars,
-        has_documents=_doc_service.has_documents(),
+    grounded_prompt, citations, has_context = (
+        _grounding_engine.build_grounded_prompt(
+            clean_query, relevant,
+            max_context_chars=_settings.max_context_chars,
+            has_documents=_doc_service.has_documents(),
+        )
     )
 
     system_instruction = _grounding_engine.build_system_instruction(
@@ -72,7 +76,8 @@ async def text_query(request: QueryRequest):
         response_text = response.text or "I wasn't able to generate a response."
 
         # Validate grounding
-        validation = _grounding_engine.validate_response(response_text, citations)
+        validation = _grounding_engine.validate_response(
+            response_text, citations)
 
         # Audit log
         _grounding_engine.log_query(
@@ -81,13 +86,17 @@ async def text_query(request: QueryRequest):
 
         result = {
             "response": response_text,
-            "citations": [c.to_dict() for c in citations],
+            "citations": [
+                c.to_dict() for c in citations
+            ],
             "validation": validation.to_dict(),
             "has_context": has_context,
         }
 
         if warnings:
-            result["security_warnings"] = warnings
+            result["security_warnings"] = (
+                warnings
+            )
 
         return result
 

@@ -23,7 +23,6 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
-from pathlib import Path
 
 import numpy as np
 
@@ -33,7 +32,8 @@ from core.retriever import tokenize
 logger = logging.getLogger(__name__)
 
 # Popcount lookup table for fast Hamming distance
-_POPCOUNT_TABLE = np.array([bin(i).count('1') for i in range(256)], dtype=np.int32)
+_POPCOUNT_TABLE = np.array([bin(i).count('1')
+                           for i in range(256)], dtype=np.int32)
 
 
 # ============================================================
@@ -201,7 +201,8 @@ class BloomFilter:
         self.expected_items = expected_items
         self.fp_rate = fp_rate
         # m = -n × ln(p) / (ln 2)²
-        self.m = max(64, int(-expected_items * math.log(fp_rate) / (math.log(2) ** 2)))
+        self.m = max(64, int(-expected_items *
+                     math.log(fp_rate) / (math.log(2) ** 2)))
         # k = (m/n) × ln 2
         self.k = max(1, int((self.m / max(expected_items, 1)) * math.log(2)))
         self.bits = bytearray(math.ceil(self.m / 8))
@@ -558,19 +559,20 @@ class HierarchicalMemory:
             return {"documents": 0, "total_compressed_bytes": 0}
 
         total_bloom = sum(
-            l.topic_filter.memory_bytes
-            for l in self._levels.values() if l.topic_filter
+            layer_idx.topic_filter.memory_bytes
+            for layer_idx in self._levels.values() if layer_idx.topic_filter
         )
         total_keywords = sum(
-            len(json.dumps(l.keywords).encode())
-            for l in self._levels.values()
+            len(json.dumps(layer_idx.keywords).encode())
+            for layer_idx in self._levels.values()
         )
         total_summary = sum(
-            len(l.summary.encode())
-            for l in self._levels.values()
+            len(layer_idx.summary.encode())
+            for layer_idx in self._levels.values()
         )
-        total_original = sum(l.original_bytes for l in self._levels.values())
-        total_compressed = total_bloom + total_keywords + total_summary + len(self._levels) * 8
+        total_original = sum(layer_idx.original_bytes for layer_idx in self._levels.values())
+        total_compressed = total_bloom + total_keywords + \
+            total_summary + len(self._levels) * 8
 
         return {
             "documents": len(self._levels),
@@ -704,13 +706,16 @@ class SuperMemory:
                 )
 
                 for chunk, emb in zip(batch_chunks, result.embeddings):
-                    self.embeddings.add(chunk.chunk_id, chunk.doc_id, emb.values)
+                    self.embeddings.add(
+                        chunk.chunk_id, chunk.doc_id, emb.values)
 
             self._embedding_enabled = True
-            logger.info(f"Embedded {len(chunks)} chunks → {self.embeddings.memory_bytes} bytes binary")
+            logger.info(
+                f"Embedded {len(chunks)} chunks → {self.embeddings.memory_bytes} bytes binary")
 
         except Exception as e:
-            logger.warning(f"Embedding generation failed (BM25 fallback active): {e}")
+            logger.warning(
+                f"Embedding generation failed (BM25 fallback active): {e}")
             self._embedding_enabled = False
 
     async def search(
@@ -744,7 +749,8 @@ class SuperMemory:
                     contents=[query],
                 )
                 query_emb = result.embeddings[0].values
-                sem_results = self.embeddings.search(query_emb, top_k=top_k * 3)
+                sem_results = self.embeddings.search(
+                    query_emb, top_k=top_k * 3)
 
                 for rank, (chunk_id, _) in enumerate(sem_results):
                     semantic_ranks[chunk_id] = 1.0 / (RRF_K + rank)
@@ -813,7 +819,8 @@ class SuperMemory:
         hier_stats = self.hierarchy.stats
         emb_bytes = self.embeddings.memory_bytes
 
-        total_compressed = emb_bytes + hier_stats.get("total_compressed_bytes", 0)
+        total_compressed = emb_bytes + \
+            hier_stats.get("total_compressed_bytes", 0)
         total_original = hier_stats.get("total_original_bytes", 1)
 
         return {

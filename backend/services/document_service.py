@@ -30,7 +30,8 @@ class DocumentService:
 
     def __init__(self, chunk_size: int = 500, chunk_overlap: int = 100, max_documents: int = 50):
         self.extractor = TextExtractor()
-        self.chunker = DocumentChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        self.chunker = DocumentChunker(
+            chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         self.retriever = BM25Retriever()
         self.sanitizer = InputSanitizer()
         self.max_documents = max_documents
@@ -59,13 +60,16 @@ class DocumentService:
 
     def ingest(self, filename: str, content_bytes: bytes) -> dict:
         if len(self._documents) >= self.max_documents:
-            raise ValueError(f"Maximum {self.max_documents} documents allowed. Remove some first.")
+            raise ValueError(
+                f"Maximum {self.max_documents} documents allowed. Remove some first.")
 
         # Phase 3: Extract text
-        result: ExtractionResult = self.extractor.extract(content_bytes, filename)
+        result: ExtractionResult = self.extractor.extract(
+            content_bytes, filename)
 
         # Phase 7: Sanitize content
-        sanitized_text, security_warnings = self.sanitizer.sanitize_document_content(result.text)
+        sanitized_text, security_warnings = self.sanitizer.sanitize_document_content(
+            result.text)
 
         # Generate ID
         doc_id = generate_doc_id(filename, sanitized_text)
@@ -106,16 +110,20 @@ class DocumentService:
                 if loop.is_running():
                     # We're inside an async context — schedule as task
                     asyncio.create_task(
-                        self.super_memory.index_document(doc_id, filename, chunks)
+                        self.super_memory.index_document(
+                            doc_id, filename, chunks)
                     )
                 else:
                     loop.run_until_complete(
-                        self.super_memory.index_document(doc_id, filename, chunks)
+                        self.super_memory.index_document(
+                            doc_id, filename, chunks)
                     )
             except Exception as e:
-                logger.warning(f"Super Memory indexing failed (BM25 still active): {e}")
+                logger.warning(
+                    f"Super Memory indexing failed (BM25 still active): {e}")
 
-        logger.info(f"Ingested '{filename}': {len(chunks)} chunks, {len(sanitized_text)} chars")
+        logger.info(
+            f"Ingested '{filename}': {len(chunks)} chunks, {len(sanitized_text)} chars")
 
         response = {
             "status": "success",
@@ -200,12 +208,15 @@ class DocumentService:
         max_chars = 8000
 
         for doc in self._documents.values():
-            parts.append(f"\n### Document: {doc.name} ({doc.page_count} pages, {doc.file_type.upper()})")
+            parts.append(
+                f"\n### Document: {doc.name} ({doc.page_count} pages, {doc.file_type.upper()})")
             for i, chunk in enumerate(doc.chunks):
                 if total_chars + len(chunk.content) > max_chars:
-                    parts.append(f"[... {len(doc.chunks) - i} more sections truncated ...]")
+                    parts.append(
+                        f"[... {len(doc.chunks) - i} more sections truncated ...]")
                     break
-                parts.append(f"[Source: {doc.name}, Section {i + 1}]\n{chunk.content}")
+                parts.append(
+                    f"[Source: {doc.name}, Section {i + 1}]\n{chunk.content}")
                 total_chars += len(chunk.content)
 
         return "\n\n".join(parts)

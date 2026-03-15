@@ -4,25 +4,24 @@ Single entry point for the GroundTruth server.
 """
 
 import logging
-import os
 import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-
 # Ensure backend is on path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import get_settings
-from services.document_service import DocumentService
-from core.grounding import GroundingEngine
-from api import documents as doc_api
-from api import query as query_api
-from api.websocket_handler import LiveSessionHandler
+from fastapi import FastAPI, WebSocket  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.responses import HTMLResponse  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+from config import get_settings  # noqa: E402
+from services.document_service import DocumentService  # noqa: E402
+from core.grounding import GroundingEngine  # noqa: E402
+from api import documents as doc_api  # noqa: E402
+from api import query as query_api  # noqa: E402
+from api.websocket_handler import LiveSessionHandler  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,7 +70,9 @@ async def lifespan(app: FastAPI):
     doc_api.init(doc_service)
     query_api.init(doc_service, grounding_engine, gemini_client, settings)
 
-    logger.info(f"GroundTruth server starting on {settings.host}:{settings.port}")
+    logger.info(
+        f"GroundTruth server starting on {settings.host}:{settings.port}"
+    )
     yield
     logger.info("GroundTruth server shutting down")
 
@@ -99,7 +100,11 @@ app.include_router(query_api.router)
 # Serve frontend static files
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 if FRONTEND_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(FRONTEND_DIR)),
+        name="static"
+    )
 
 
 # --- WebSocket ---

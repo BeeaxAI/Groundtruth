@@ -44,7 +44,8 @@ class DocumentChunker:
         if page_boundaries:
             self._assign_page_numbers(chunks, page_boundaries)
 
-        logger.info(f"Chunked '{doc_name}' → {len(chunks)} chunks (avg {sum(len(c.content) for c in chunks) // max(len(chunks), 1)} chars)")
+        logger.info(
+            f"Chunked '{doc_name}' → {len(chunks)} chunks (avg {sum(len(c.content) for c in chunks) // max(len(chunks), 1)} chars)")
         return chunks
 
     def _split_paragraphs(self, text: str) -> list[str]:
@@ -88,7 +89,8 @@ class DocumentChunker:
         prev_overlap = ""
 
         for para in paragraphs:
-            new_text = (current_text + "\n\n" + para).strip() if current_text else para
+            new_text = (current_text + "\n\n" +
+                        para).strip() if current_text else para
 
             if len(new_text) > self.chunk_size and current_text:
                 chunk = self._create_chunk(
@@ -97,7 +99,8 @@ class DocumentChunker:
                 )
                 chunks.append(chunk)
 
-                prev_overlap = current_text[-self.chunk_overlap:] + "\n\n" if len(current_text) > self.chunk_overlap else ""
+                prev_overlap = current_text[-self.chunk_overlap:] + \
+                    "\n\n" if len(current_text) > self.chunk_overlap else ""
                 current_text = para
                 current_start = char_pos
             else:
@@ -107,7 +110,8 @@ class DocumentChunker:
         if current_text.strip():
             final_text = prev_overlap + current_text if prev_overlap and chunks else current_text
             chunks.append(self._create_chunk(
-                final_text, doc_id, doc_name, len(chunks), current_start, char_pos,
+                final_text, doc_id, doc_name, len(
+                    chunks), current_start, char_pos,
             ))
 
         return chunks

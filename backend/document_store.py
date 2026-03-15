@@ -84,7 +84,8 @@ class DocumentStore:
                 ))
                 chunk_idx += 1
                 # Overlap: keep last portion
-                overlap_text = current_chunk[-self.chunk_overlap:] if len(current_chunk) > self.chunk_overlap else ""
+                overlap_text = current_chunk[-self.chunk_overlap:] if len(
+                    current_chunk) > self.chunk_overlap else ""
                 current_chunk = overlap_text + "\n\n" + para
                 current_start = max(0, char_pos - self.chunk_overlap)
             else:

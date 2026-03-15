@@ -12,7 +12,6 @@ Architecture:
 
 import re
 import logging
-from typing import Optional
 from document_store import DocumentStore
 
 logger = logging.getLogger(__name__)
@@ -70,7 +69,8 @@ class GroundingEngine:
             - citations: Citation metadata for the UI
             - has_context: Whether any relevant documents were found
         """
-        context, citations = self.document_store.get_context_for_query(user_query)
+        context, citations = self.document_store.get_context_for_query(
+            user_query)
 
         if not context:
             grounded_prompt = (
@@ -111,7 +111,8 @@ class GroundingEngine:
 
         lines = []
         for doc in docs:
-            lines.append(f"- {doc['name']} ({doc['chunks']} sections, {doc['content_length']} chars)")
+            lines.append(
+                f"- {doc['name']} ({doc['chunks']} sections, {doc['content_length']} chars)")
         return "\n".join(lines)
 
     def validate_response(self, response_text: str, citations: list[dict]) -> dict:

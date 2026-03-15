@@ -8,7 +8,6 @@ import math
 import re
 import logging
 from collections import Counter
-from typing import Optional
 from core.models import DocumentChunk
 
 logger = logging.getLogger(__name__)
@@ -73,7 +72,6 @@ class BM25Retriever:
         self._avg_dl = total / max(self._n_docs, 1)
 
     def add_chunks(self, new_chunks: list[DocumentChunk]):
-        start_idx = len(self._chunks)
         self._chunks.extend(new_chunks)
 
         for chunk in new_chunks:
@@ -87,7 +85,8 @@ class BM25Retriever:
         self._avg_dl = total / max(self._n_docs, 1)
 
     def remove_doc_chunks(self, doc_id: str):
-        indices_to_remove = {i for i, c in enumerate(self._chunks) if c.doc_id == doc_id}
+        indices_to_remove = {i for i, c in enumerate(
+            self._chunks) if c.doc_id == doc_id}
         if not indices_to_remove:
             return
 
@@ -98,8 +97,10 @@ class BM25Retriever:
                 if self._doc_freqs[term] <= 0:
                     del self._doc_freqs[term]
 
-        self._chunks = [c for i, c in enumerate(self._chunks) if i not in indices_to_remove]
-        self._tokenized = [t for i, t in enumerate(self._tokenized) if i not in indices_to_remove]
+        self._chunks = [c for i, c in enumerate(
+            self._chunks) if i not in indices_to_remove]
+        self._tokenized = [t for i, t in enumerate(
+            self._tokenized) if i not in indices_to_remove]
         self._n_docs = len(self._chunks)
         total = sum(len(t) for t in self._tokenized)
         self._avg_dl = total / max(self._n_docs, 1)
@@ -138,7 +139,8 @@ class BM25Retriever:
 
             # BM25 term score
             numerator = tf * (self.k1 + 1)
-            denominator = tf + self.k1 * (1 - self.b + self.b * dl / max(self._avg_dl, 1))
+            denominator = tf + self.k1 * \
+                (1 - self.b + self.b * dl / max(self._avg_dl, 1))
             score += idf * (numerator / denominator)
 
         return score

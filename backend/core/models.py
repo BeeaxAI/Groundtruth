@@ -41,7 +41,8 @@ class Document:
     page_count: int = 1
     file_type: str = ""
     file_size_bytes: int = 0
-    ingested_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    ingested_at: str = field(
+        default_factory=lambda: datetime.utcnow().isoformat())
 
     def to_dict(self) -> dict:
         return {
@@ -99,7 +100,8 @@ class GroundingResult:
 @dataclass
 class QueryRecord:
     query: str
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat())
     num_citations: int = 0
     has_context: bool = False
     grounding_result: Optional[GroundingResult] = None

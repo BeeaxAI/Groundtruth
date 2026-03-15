@@ -4,7 +4,6 @@ Upload, list, delete documents.
 """
 
 import logging
-from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 
 logger = logging.getLogger(__name__)
@@ -33,7 +32,10 @@ async def upload_document(file: UploadFile = File(...)):
 
     max_size = 20 * 1024 * 1024  # 20MB
     if len(content_bytes) > max_size:
-        raise HTTPException(400, f"File too large ({len(content_bytes) / 1024 / 1024:.1f}MB). Maximum: 20MB")
+        size_mb = len(content_bytes) / 1024 / 1024
+        raise HTTPException(
+            400, f"File too large ({size_mb:.1f}MB). Maximum: 20MB"
+        )
 
     try:
         result = _doc_service.ingest(file.filename, content_bytes)
@@ -78,5 +80,6 @@ async def document_insights(doc_id: str):
     """Get AI-extracted insights (keywords, summary) for a document."""
     insights = _doc_service.get_document_insights(doc_id)
     if not insights:
-        raise HTTPException(404, "Document not found or Super Memory not initialized")
+        raise HTTPException(
+            404, "Document not found or Super Memory not initialized")
     return insights

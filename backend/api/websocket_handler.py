@@ -47,7 +47,10 @@ class LiveSessionHandler:
     Pre-loads document context so voice queries can reference documents.
     """
 
-    def __init__(self, ws: WebSocket, gemini_client, doc_service, grounding_engine, settings):
+    def __init__(
+        self, ws: WebSocket, gemini_client, doc_service,
+        grounding_engine, settings
+    ):
         self.ws = ws
         self.client = gemini_client
         self.doc_service = doc_service
@@ -67,7 +70,10 @@ class LiveSessionHandler:
         logger.info("WebSocket client connected")
 
         if not self.client:
-            await self._send({"type": "error", "message": "Gemini not configured. Set GOOGLE_API_KEY."})
+            await self._send({
+                "type": "error",
+                "message": "Gemini not configured. Set GOOGLE_API_KEY."
+            })
             await self.ws.close()
             return
 
@@ -96,8 +102,12 @@ class LiveSessionHandler:
                     reconnect_count = 0
                     await self._send({"type": "status", "message": "connected"})
 
-                    self._receive_task = asyncio.create_task(self._receive_from_gemini())
-                    client_task = asyncio.create_task(self._receive_from_client())
+                    self._receive_task = asyncio.create_task(
+                        self._receive_from_gemini()
+                    )
+                    client_task = asyncio.create_task(
+                        self._receive_from_client()
+                    )
 
                     done, pending = await asyncio.wait(
                         [self._receive_task, client_task],
@@ -118,7 +128,10 @@ class LiveSessionHandler:
                         return
 
                     reconnect_count += 1
-                    logger.info(f"Gemini session expired, auto-reconnecting ({reconnect_count}/{MAX_RECONNECTS})...")
+                    logger.info(
+                        f"Gemini session expired, auto-reconnecting "
+                        f"({reconnect_count}/{MAX_RECONNECTS})..."
+                    )
                     self._accumulated_transcript = ""
                     self._last_citations = []
                     await self._send_safe({"type": "status", "message": "reconnecting"})
@@ -128,9 +141,15 @@ class LiveSessionHandler:
                 raise
             except Exception as e:
                 reconnect_count += 1
-                logger.error(f"Session error, reconnecting ({reconnect_count}/{MAX_RECONNECTS}): {e}")
+                logger.error(
+                    f"Session error, reconnecting "
+                    f"({reconnect_count}/{MAX_RECONNECTS}): {e}"
+                )
                 if reconnect_count > MAX_RECONNECTS:
-                    await self._send_safe({"type": "error", "message": "Connection lost. Please refresh the page."})
+                    await self._send_safe({
+                        "type": "error",
+                        "message": "Connection lost. Please refresh."
+                    })
                     break
                 await self._send_safe({"type": "status", "message": "reconnecting"})
                 await asyncio.sleep(1)
@@ -181,7 +200,8 @@ class LiveSessionHandler:
                 if content.model_turn:
                     for part in content.model_turn.parts:
                         if part.inline_data:
-                            audio_b64 = base64.b64encode(part.inline_data.data).decode()
+                            audio_b64 = base64.b64encode(
+                                part.inline_data.data).decode()
                             await self._send({"type": "audio", "data": audio_b64})
 
                 # Output transcription (what Gemini says)
@@ -292,14 +312,16 @@ class LiveSessionHandler:
         try:
             await asyncio.wait_for(
                 self.session.send_client_content(
-                    turns=[{"role": "user", "parts": [{"text": grounded_prompt}]}],
+                    turns=[{"role": "user", "parts": [
+                        {"text": grounded_prompt}]}],
                     turn_complete=True,
                 ),
                 timeout=15.0,
             )
             logger.info(f"Sent text query to Gemini: '{clean_text[:60]}'")
         except asyncio.TimeoutError:
-            logger.error("Timeout sending text to Gemini — session likely dead")
+            logger.error(
+                "Timeout sending text to Gemini — session likely dead")
             self._session_alive = False
             await self._send({"type": "error", "message": "Session timed out. Reconnecting..."})
             await self._send({"type": "turn_complete", "validation": {
@@ -327,7 +349,8 @@ class LiveSessionHandler:
         if not self.doc_service.has_documents():
             return
 
-        relevant = self.doc_service.search(user_speech, top_k=self.settings.max_retrieval_chunks)
+        relevant = self.doc_service.search(
+            user_speech, top_k=self.settings.max_retrieval_chunks)
         if not relevant:
             return
 

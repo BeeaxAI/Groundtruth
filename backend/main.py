@@ -95,10 +95,12 @@ async def upload_document(file: UploadFile = File(...)):
         elif ext == ".docx":
             text_content = _extract_docx_text(content_bytes)
         else:
-            raise HTTPException(400, f"Unsupported file type: {ext}. Use .txt, .pdf, .docx, or .md")
+            raise HTTPException(
+                400, f"Unsupported file type: {ext}. Use .txt, .pdf, .docx, or .md")
 
         if not text_content.strip():
-            raise HTTPException(400, "Document appears to be empty or could not be parsed")
+            raise HTTPException(
+                400, "Document appears to be empty or could not be parsed")
 
         doc = document_store.add_document(file.filename, text_content)
         return {
@@ -141,10 +143,12 @@ async def text_query(payload: dict):
         raise HTTPException(400, "Empty query")
 
     if not client:
-        raise HTTPException(503, "Gemini client not initialized. Set GOOGLE_API_KEY.")
+        raise HTTPException(
+            503, "Gemini client not initialized. Set GOOGLE_API_KEY.")
 
     # Build grounded prompt
-    grounded_prompt, citations, has_context = grounding_engine.build_grounded_prompt(query)
+    grounded_prompt, citations, has_context = grounding_engine.build_grounded_prompt(
+        query)
     system_instruction = grounding_engine.get_system_instruction()
 
     try:
@@ -158,7 +162,8 @@ async def text_query(payload: dict):
         )
 
         response_text = response.text or "I wasn't able to generate a response."
-        validation = grounding_engine.validate_response(response_text, citations)
+        validation = grounding_engine.validate_response(
+            response_text, citations)
 
         return {
             "response": response_text,
@@ -233,7 +238,8 @@ async def websocket_live(ws: WebSocket):
                         if content.model_turn:
                             for part in content.model_turn.parts:
                                 if part.inline_data:
-                                    audio_b64 = base64.b64encode(part.inline_data.data).decode()
+                                    audio_b64 = base64.b64encode(
+                                        part.inline_data.data).decode()
                                     await ws.send_json({
                                         "type": "audio",
                                         "data": audio_b64,
@@ -257,7 +263,8 @@ async def websocket_live(ws: WebSocket):
                             })
 
                             # Perform grounding lookup for the transcribed question
-                            _, citations, has_context = grounding_engine.build_grounded_prompt(user_text)
+                            _, citations, has_context = grounding_engine.build_grounded_prompt(
+                                user_text)
                             if citations:
                                 await ws.send_json({
                                     "type": "citations",
@@ -269,8 +276,10 @@ async def websocket_live(ws: WebSocket):
                         if content.turn_complete:
                             # Validate the accumulated response
                             if accumulated_transcript:
-                                _, citations, _ = grounding_engine.build_grounded_prompt(accumulated_transcript)
-                                validation = grounding_engine.validate_response(accumulated_transcript, citations)
+                                _, citations, _ = grounding_engine.build_grounded_prompt(
+                                    accumulated_transcript)
+                                validation = grounding_engine.validate_response(
+                                    accumulated_transcript, citations)
                                 await ws.send_json({
                                     "type": "turn_complete",
                                     "validation": validation,
@@ -317,10 +326,12 @@ async def websocket_live(ws: WebSocket):
             elif msg_type == "text":
                 # User types a question — inject grounded context
                 user_query = msg.get("text", "")
-                grounded_prompt, citations, has_context = grounding_engine.build_grounded_prompt(user_query)
+                grounded_prompt, citations, has_context = grounding_engine.build_grounded_prompt(
+                    user_query)
 
                 await session.send_client_content(
-                    turns=[{"role": "user", "parts": [{"text": grounded_prompt}]}],
+                    turns=[{"role": "user", "parts": [
+                        {"text": grounded_prompt}]}],
                     turn_complete=True,
                 )
 
@@ -336,7 +347,8 @@ async def websocket_live(ws: WebSocket):
                 # This is called when user asks a question via voice
                 # and we want to supplement with document context
                 query = msg.get("query", "")
-                grounded_prompt, citations, has_context = grounding_engine.build_grounded_prompt(query)
+                grounded_prompt, citations, has_context = grounding_engine.build_grounded_prompt(
+                    query)
 
                 if has_context:
                     await session.send_client_content(
