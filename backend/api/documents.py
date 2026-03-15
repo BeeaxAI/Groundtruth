@@ -59,3 +59,24 @@ async def delete_document(doc_id: str):
     if _doc_service.remove(doc_id):
         return {"status": "removed", "doc_id": doc_id}
     raise HTTPException(404, "Document not found")
+
+
+@router.get("/memory/stats")
+async def memory_stats():
+    """Get Super Memory compression statistics."""
+    return _doc_service.get_memory_stats()
+
+
+@router.get("/memory/duplicates")
+async def memory_duplicates():
+    """Detect near-duplicate documents using SimHash fingerprinting."""
+    return {"duplicates": _doc_service.find_duplicates()}
+
+
+@router.get("/{doc_id}/insights")
+async def document_insights(doc_id: str):
+    """Get AI-extracted insights (keywords, summary) for a document."""
+    insights = _doc_service.get_document_insights(doc_id)
+    if not insights:
+        raise HTTPException(404, "Document not found or Super Memory not initialized")
+    return insights

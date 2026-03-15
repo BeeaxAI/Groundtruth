@@ -47,14 +47,25 @@ async def lifespan(app: FastAPI):
     global gemini_client
 
     if settings.google_api_key:
-        try:
-            from google import genai
-            gemini_client = genai.Client(api_key=settings.google_api_key)
-            logger.info("Gemini client initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize Gemini: {e}")
+        if settings.google_api_key == "dummy_key_for_testing":
+            from mock_gemini import MockGeminiClient
+            gemini_client = MockGeminiClient(api_key=settings.google_api_key)
+            logger.info("Mock Gemini client initialized for testing")
+        else:
+            try:
+                from google import genai
+                gemini_client = genai.Client(api_key=settings.google_api_key)
+                logger.info("Gemini client initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize Gemini: {e}")
     else:
         logger.warning("GOOGLE_API_KEY not set — Gemini features disabled")
+
+    # Initialize Super Memory with Gemini client for embeddings
+    doc_service.init_super_memory(
+        gemini_client=gemini_client,
+        embedding_model=settings.embedding_model,
+    )
 
     # Wire dependencies
     doc_api.init(doc_service)

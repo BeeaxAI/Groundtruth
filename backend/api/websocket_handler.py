@@ -96,9 +96,6 @@ class LiveSessionHandler:
                     reconnect_count = 0
                     await self._send({"type": "status", "message": "connected"})
 
-                    # Pre-load document content so voice queries have context
-                    await self._preload_document_context()
-
                     self._receive_task = asyncio.create_task(self._receive_from_gemini())
                     client_task = asyncio.create_task(self._receive_from_client())
 
@@ -167,38 +164,6 @@ class LiveSessionHandler:
             model=self.settings.gemini_live_model,
             config=config,
         )
-
-    # ---- Pre-load Document Context for Voice ----
-
-    async def _preload_document_context(self):
-        """
-        Pre-load document content into the Gemini session so voice queries
-        can reference documents without waiting for context injection.
-        """
-        chunks = self.doc_service.get_context_preview(max_chunks=10)
-        if not chunks:
-            return
-
-        context_parts = []
-        for i, chunk in enumerate(chunks):
-            context_parts.append(f"[Source {i + 1}: {chunk.doc_name}]\n{chunk.content}")
-
-        context_str = "\n\n---\n\n".join(context_parts)
-
-        preload_msg = (
-            "[PRELOADED DOCUMENT CONTEXT — Use these sources to answer voice questions. "
-            "Cite with [Source N] when referencing.]\n\n"
-            f"{context_str}"
-        )
-
-        try:
-            await self.session.send_client_content(
-                turns=[{"role": "user", "parts": [{"text": preload_msg}]}],
-                turn_complete=False,
-            )
-            logger.info(f"Pre-loaded {len(chunks)} document chunks into Gemini session")
-        except Exception as e:
-            logger.warning(f"Failed to preload document context: {e}")
 
     # ---- Phase 13 & 14: Receive from Gemini (audio + transcriptions) ----
 
@@ -316,7 +281,7 @@ class LiveSessionHandler:
             }})
             return
 
-        relevant = self.doc_service.search(clean_text, top_k=self.settings.max_retrieval_chunks)
+        relevant = await self.doc_service.search_hybrid(clean_text, top_k=self.settings.max_retrieval_chunks)
         grounded_prompt, citations, has_context = self.grounding.build_grounded_prompt(
             clean_text, relevant, max_context_chars=self.settings.max_context_chars,
             has_documents=self.doc_service.has_documents(),
@@ -407,7 +372,12 @@ class LiveSessionHandler:
             elif msg_type == "context_inject":
                 await self._inject_context(msg.get("query", ""))
             elif msg_type == "doc_update":
-                await self._preload_document_context()
+                # Trigger session reconnect so the system instruction
+                # includes the new document content
+                logger.info("Document updated — triggering session refresh")
+                self._session_alive = False
+                if self._receive_task:
+                    self._receive_task.cancel()
             elif msg_type == "ping":
                 await self._send({"type": "pong"})
 

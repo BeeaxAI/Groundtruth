@@ -43,8 +43,8 @@ async def text_query(request: QueryRequest):
     if not clean_query:
         raise HTTPException(400, "Query is empty after sanitization")
 
-    # Retrieve relevant chunks
-    relevant = _doc_service.search(clean_query, top_k=_settings.max_retrieval_chunks)
+    # Retrieve relevant chunks (hybrid: BM25 + semantic + hierarchical)
+    relevant = await _doc_service.search_hybrid(clean_query, top_k=_settings.max_retrieval_chunks)
 
     # Build grounded prompt
     grounded_prompt, citations, has_context = _grounding_engine.build_grounded_prompt(

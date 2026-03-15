@@ -24,6 +24,10 @@ class Settings(BaseSettings):
         default="gemini-2.5-flash-preview-05-20",
         description="Model for text-only queries (REST fallback)",
     )
+    embedding_model: str = Field(
+        default="text-embedding-004",
+        description="Model for generating document embeddings (Super Memory)",
+    )
     gemini_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     gemini_max_output_tokens: int = Field(default=2048, ge=1)
 
