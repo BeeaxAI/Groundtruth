@@ -81,6 +81,27 @@ async def memory_duplicates():
     return {"duplicates": _doc_service.find_duplicates()}
 
 
+@router.get("/gaps")
+async def knowledge_gaps():
+    """Get knowledge gap analysis — topics users asked about that couldn't be answered well."""
+    return _doc_service.get_knowledge_gaps()
+
+
+@router.get("/heatmap")
+async def all_heatmaps():
+    """Get hallucination heatmap for all documents — per-chunk citation frequency."""
+    return {"heatmaps": _doc_service.get_heatmap()}
+
+
+@router.get("/{doc_id}/heatmap")
+async def single_document_heatmap(doc_id: str):
+    """Get hallucination heatmap for a single document."""
+    heatmap = _doc_service.get_heatmap(doc_id)
+    if not heatmap:
+        raise HTTPException(404, "Document not found")
+    return heatmap
+
+
 @router.get("/{doc_id}/health")
 async def single_document_health(doc_id: str):
     """Get health score for a single document."""

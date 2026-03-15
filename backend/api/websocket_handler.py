@@ -61,6 +61,7 @@ class LiveSessionHandler:
         self._receive_task: Optional[asyncio.Task] = None
         self._accumulated_transcript = ""
         self._last_citations = []
+        self._last_user_query = ""
         self._active = False
         self._session_alive = False
 
@@ -221,6 +222,7 @@ class LiveSessionHandler:
                 # Input transcription (what user said)
                 if content.input_transcription and content.input_transcription.text:
                     user_text = content.input_transcription.text
+                    self._last_user_query = user_text
                     await self._send({"type": "transcript_input", "text": user_text})
                     # Note: Do NOT call _inject_context here — sending client_content
                     # while audio is streaming causes session interruption/crash.
@@ -246,6 +248,10 @@ class LiveSessionHandler:
         has_docs = self.doc_service.has_documents()
 
         if self._accumulated_transcript and self._last_citations:
+            # Record citation hits for hallucination heatmap
+            for c in self._last_citations:
+                self.doc_service.record_citation(c.chunk_id)
+
             # We have both a response and citations — validate grounding
             validation = self.grounding.validate_response(
                 self._accumulated_transcript, self._last_citations
@@ -261,6 +267,16 @@ class LiveSessionHandler:
             validation_dict = validation.to_dict()
             validation_dict["confidence"] = confidence
 
+            # Record knowledge gap if confidence is low or status is ungrounded
+            gap_query = self._last_user_query or self._accumulated_transcript
+            conf_score = confidence.get("score", 100) if isinstance(confidence, dict) else confidence
+            gap_status = validation_dict.get("status", "")
+            self.doc_service.record_gap(
+                query=gap_query,
+                confidence_score=conf_score,
+                status=gap_status,
+            )
+
             # Generate smart follow-up suggestions
             follow_ups = self.doc_service.generate_follow_ups(
                 self._accumulated_transcript, self._last_citations
@@ -273,6 +289,10 @@ class LiveSessionHandler:
             })
         elif self._accumulated_transcript and has_docs:
             # Gemini responded, docs exist but no specific citations matched.
+            gap_query = self._last_user_query or self._accumulated_transcript
+            self.doc_service.record_gap(
+                query=gap_query, confidence_score=10, status="no_match",
+            )
             await self._send({"type": "turn_complete", "validation": {
                 "status": "no_match", "valid": True,
                 "reason": "Documents uploaded but no specific match for this query",
@@ -283,6 +303,11 @@ class LiveSessionHandler:
             status = "no_match" if has_docs else "no_context"
             reason = ("No matching content found in uploaded documents"
                       if has_docs else "No documents uploaded")
+            gap_query = self._last_user_query or self._accumulated_transcript
+            if gap_query:
+                self.doc_service.record_gap(
+                    query=gap_query, confidence_score=0, status=status,
+                )
             await self._send({"type": "turn_complete", "validation": {
                 "status": status, "valid": True, "reason": reason,
                 "confidence": {"score": 0, "level": "none", "breakdown": {}},
@@ -290,6 +315,7 @@ class LiveSessionHandler:
 
         self._accumulated_transcript = ""
         self._last_citations = []
+        self._last_user_query = ""
 
     # ---- Phase 13: Audio Streaming (Client → Gemini) ----
 
@@ -330,6 +356,7 @@ class LiveSessionHandler:
             }})
             return
 
+        self._last_user_query = clean_text
         relevant = await self.doc_service.search_hybrid(clean_text, top_k=self.settings.max_retrieval_chunks)
         grounded_prompt, citations, has_context = self.grounding.build_grounded_prompt(
             clean_text, relevant, max_context_chars=self.settings.max_context_chars,

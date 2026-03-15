@@ -20,6 +20,19 @@ let currentAgentMsg = null;
 let reconnectTimer = null;
 let isPaused = false;
 
+// Session Analytics state
+let sessionStats = {
+    totalQueries: 0,
+    totalConfidence: 0,
+    avgConfidence: 0,
+    highestConfidence: 0,
+    lowestConfidence: 100,
+    citedDocs: {},
+    groundedCount: 0,
+    ungroupedCount: 0,
+    startTime: Date.now(),
+};
+
 // ============================================================
 // DOM References
 // ============================================================
@@ -94,8 +107,13 @@ function handleMessage(msg) {
             break;
 
         case 'turn_complete':
-            if (msg.validation) addGroundingBadge(msg.validation);
+            if (msg.validation) {
+                addGroundingBadge(msg.validation);
+                trackSessionStats(msg.validation);
+            }
             if (msg.follow_ups) renderFollowUps(msg.follow_ups);
+            fetchKnowledgeGaps();
+            fetchAllHeatmaps();
             setStatus('connected', 'Connected');
             break;
 
@@ -456,8 +474,10 @@ async function uploadFile(file) {
             addAudit(`Uploaded: ${data.name} (${data.chunks} chunks)`);
             // Push document content into the active Gemini session
             wsSend({ type: 'doc_update' });
-            // Fetch document health score (async, non-blocking)
+            // Fetch document health score, auto-tags, heatmap (async)
             fetchDocHealth(data.doc_id);
+            setTimeout(() => fetchAutoTags(data.doc_id), 1500);
+            setTimeout(() => fetchHeatmap(data.doc_id), 2000);
         } else {
             alert(`Upload failed: ${data.detail}`);
         }
@@ -588,8 +608,8 @@ function esc(t) {
 }
 
 function fmtCitations(t) {
-    // Highlight all "Source N" references regardless of bracket/comma format
-    return t.replace(/Source\s+(\d+)/g, '<span class="citation-ref">Source $1</span>');
+    // Highlight all "Source N" references — clickable for deep-link
+    return t.replace(/Source\s+(\d+)/g, '<span class="citation-ref" role="button" tabindex="0">Source $1</span>');
 }
 
 function trunc(s, n) { return s.length > n ? s.slice(0, n) + '...' : s; }
@@ -606,6 +626,263 @@ function b64toAB(b64) {
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return bytes.buffer;
+}
+
+// ============================================================
+// Session Analytics (Feature: Live Stats Tracking)
+// ============================================================
+function trackSessionStats(validation) {
+    sessionStats.totalQueries++;
+    const conf = validation.confidence?.score || 0;
+    sessionStats.totalConfidence += conf;
+    sessionStats.avgConfidence = Math.round(sessionStats.totalConfidence / sessionStats.totalQueries);
+    if (conf > sessionStats.highestConfidence) sessionStats.highestConfidence = conf;
+    if (conf < sessionStats.lowestConfidence && conf > 0) sessionStats.lowestConfidence = conf;
+    if (validation.status === 'grounded') sessionStats.groundedCount++;
+    else if (validation.status === 'ungrounded') sessionStats.ungroupedCount++;
+    if (validation.cited_sources) {
+        validation.cited_sources.forEach(s => {
+            sessionStats.citedDocs[s] = (sessionStats.citedDocs[s] || 0) + 1;
+        });
+    }
+    renderSessionAnalytics();
+}
+
+function renderSessionAnalytics() {
+    const panel = document.getElementById('session-analytics');
+    if (!panel) return;
+    const elapsed = Math.floor((Date.now() - sessionStats.startTime) / 60000);
+    const groundRate = sessionStats.totalQueries > 0
+        ? Math.round((sessionStats.groundedCount / sessionStats.totalQueries) * 100) : 0;
+
+    panel.innerHTML = `
+        <div class="analytics-grid">
+            <div class="analytics-stat">
+                <div class="analytics-stat__value">${sessionStats.totalQueries}</div>
+                <div class="analytics-stat__label">Queries</div>
+            </div>
+            <div class="analytics-stat">
+                <div class="analytics-stat__value" style="color:${sessionStats.avgConfidence >= 60 ? 'var(--accent)' : 'var(--warning)'}">${sessionStats.avgConfidence}%</div>
+                <div class="analytics-stat__label">Avg Confidence</div>
+            </div>
+            <div class="analytics-stat">
+                <div class="analytics-stat__value" style="color:var(--accent)">${groundRate}%</div>
+                <div class="analytics-stat__label">Grounded Rate</div>
+            </div>
+            <div class="analytics-stat">
+                <div class="analytics-stat__value">${elapsed}m</div>
+                <div class="analytics-stat__label">Duration</div>
+            </div>
+        </div>
+        <div class="analytics-range">
+            <span>Confidence range: <strong>${Math.round(sessionStats.lowestConfidence)}%</strong> — <strong>${Math.round(sessionStats.highestConfidence)}%</strong></span>
+        </div>
+    `;
+}
+
+// ============================================================
+// Answer Export (Feature: Download conversation)
+// ============================================================
+function exportConversation() {
+    const messages = document.querySelectorAll('.msg');
+    if (!messages.length) return;
+
+    let text = '=== GroundTruth Conversation Export ===\n';
+    text += `Date: ${new Date().toLocaleString()}\n`;
+    text += `Session Duration: ${Math.floor((Date.now() - sessionStats.startTime) / 60000)} minutes\n`;
+    text += `Total Queries: ${sessionStats.totalQueries}\n`;
+    text += `Average Confidence: ${sessionStats.avgConfidence}%\n`;
+    text += '='.repeat(50) + '\n\n';
+
+    messages.forEach(msg => {
+        const role = msg.classList.contains('msg--user') ? 'YOU' : 'GROUNDTRUTH';
+        const bubble = msg.querySelector('.msg__bubble');
+        const badge = msg.querySelector('.grounding-badge');
+        const confVal = msg.querySelector('.confidence-value');
+
+        text += `[${role}]\n`;
+        text += bubble ? bubble.textContent.trim() + '\n' : '';
+        if (badge) text += `  Status: ${badge.textContent.trim()}\n`;
+        if (confVal) text += `  Confidence: ${confVal.textContent.trim()}\n`;
+        text += '\n';
+    });
+
+    // Add citations
+    const cites = document.querySelectorAll('.cite-card');
+    if (cites.length) {
+        text += '=== SOURCE CITATIONS ===\n';
+        cites.forEach(c => {
+            const src = c.querySelector('.cite-card__source')?.textContent || '';
+            const excerpt = c.querySelector('.cite-card__excerpt')?.textContent || '';
+            text += `[${c.querySelector('.cite-card__num')?.textContent}] ${src}\n  ${excerpt.slice(0, 150)}...\n\n`;
+        });
+    }
+
+    text += '\n--- Exported from GroundTruth (Zero-Hallucination Agent) ---\n';
+
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `groundtruth-export-${new Date().toISOString().slice(0,10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    addAudit('Conversation exported');
+}
+
+// ============================================================
+// Auto-Tag Documents (Feature: Keyword tags per document)
+// ============================================================
+async function fetchAutoTags(docId) {
+    try {
+        const res = await fetch(`${API}/api/documents/${docId}/insights`);
+        if (res.ok) {
+            const data = await res.json();
+            renderDocTags(docId, data.keywords || data.top_keywords || []);
+        }
+    } catch (e) { /* non-critical */ }
+}
+
+function renderDocTags(docId, keywords) {
+    const item = dom.docList.querySelector(`[data-doc-id="${docId}"]`);
+    if (!item || !keywords.length) return;
+    // Don't add tags twice
+    if (item.querySelector('.doc-tags')) return;
+
+    const info = item.querySelector('.doc-item__info');
+    const tagContainer = document.createElement('div');
+    tagContainer.className = 'doc-tags';
+
+    const colors = ['var(--accent)', 'var(--info)', 'var(--warning)', '#c084fc', '#f472b6'];
+    const topKws = (typeof keywords[0] === 'string' ? keywords : keywords.map(k => k[0] || k.keyword || k)).slice(0, 4);
+
+    topKws.forEach((kw, i) => {
+        const tag = document.createElement('span');
+        tag.className = 'doc-tag';
+        tag.style.setProperty('--tag-color', colors[i % colors.length]);
+        tag.textContent = kw;
+        tagContainer.appendChild(tag);
+    });
+    info.appendChild(tagContainer);
+}
+
+// ============================================================
+// Citation Deep-Link (Feature: Click Source N to scroll)
+// ============================================================
+function setupCitationDeepLinks() {
+    // Delegate click on citation-ref spans in chat
+    dom.chat.addEventListener('click', (e) => {
+        const ref = e.target.closest('.citation-ref');
+        if (!ref) return;
+        const match = ref.textContent.match(/Source\s+(\d+)/);
+        if (!match) return;
+        const idx = match[1];
+        // Find matching citation card in right panel
+        const cards = dom.citeList.querySelectorAll('.cite-card');
+        for (const card of cards) {
+            const num = card.querySelector('.cite-card__num');
+            if (num && num.textContent.trim() === idx) {
+                card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                card.classList.add('cite-card--highlight');
+                setTimeout(() => card.classList.remove('cite-card--highlight'), 2000);
+                break;
+            }
+        }
+    });
+}
+
+// ============================================================
+// Hallucination Heatmap (Feature: Citation density per doc)
+// ============================================================
+async function fetchHeatmap(docId) {
+    try {
+        const res = await fetch(`${API}/api/documents/${docId}/heatmap`);
+        if (res.ok) {
+            const data = await res.json();
+            renderHeatmap(docId, data);
+        }
+    } catch (e) { /* non-critical */ }
+}
+
+function renderHeatmap(docId, data) {
+    const item = dom.docList.querySelector(`[data-doc-id="${docId}"]`);
+    if (!item) return;
+    // Remove existing heatmap
+    const existing = item.querySelector('.doc-heatmap');
+    if (existing) existing.remove();
+
+    const chunks = data.chunks || [];
+    if (!chunks.length) return;
+
+    const strip = document.createElement('div');
+    strip.className = 'doc-heatmap';
+    strip.title = 'Citation Heatmap: Green=frequently cited, Gray=never cited';
+
+    chunks.forEach(c => {
+        const cell = document.createElement('div');
+        cell.className = `doc-heatmap__cell doc-heatmap__cell--${c.heat || 'frozen'}`;
+        cell.title = `Chunk ${c.chunk_index + 1}: ${c.citations} citations (${c.heat})`;
+        strip.appendChild(cell);
+    });
+
+    const info = item.querySelector('.doc-item__info');
+    info.appendChild(strip);
+}
+
+// Fetch all heatmaps after each turn
+function fetchAllHeatmaps() {
+    const items = dom.docList.querySelectorAll('.doc-item');
+    items.forEach(item => {
+        const docId = item.dataset.docId;
+        if (docId) fetchHeatmap(docId);
+    });
+}
+
+// ============================================================
+// Knowledge Gap Detector (Feature: Show missing topics)
+// ============================================================
+async function fetchKnowledgeGaps() {
+    try {
+        const res = await fetch(`${API}/api/documents/gaps`);
+        if (res.ok) {
+            const data = await res.json();
+            renderKnowledgeGaps(data);
+        }
+    } catch (e) { /* non-critical */ }
+}
+
+function renderKnowledgeGaps(data) {
+    const panel = document.getElementById('knowledge-gaps');
+    if (!panel) return;
+
+    const gaps = data.gaps || [];
+    const suggestions = data.suggestions || [];
+
+    if (!gaps.length && !suggestions.length) {
+        panel.innerHTML = '<div class="empty-state">No knowledge gaps detected yet. Ask more questions!</div>';
+        return;
+    }
+
+    let html = '';
+    if (gaps.length) {
+        html += '<div class="gaps-list">';
+        gaps.slice(0, 5).forEach(g => {
+            html += `<div class="gap-item">
+                <span class="gap-item__topic">${esc(g.topic)}</span>
+                <span class="gap-item__freq">${g.frequency}x asked</span>
+            </div>`;
+        });
+        html += '</div>';
+    }
+    if (suggestions.length) {
+        html += '<div class="gaps-suggest">';
+        html += '<div class="gaps-suggest__title">Suggested uploads:</div>';
+        suggestions.slice(0, 3).forEach(s => {
+            html += `<div class="gaps-suggest__item">${esc(s)}</div>`;
+        });
+        html += '</div>';
+    }
+    panel.innerHTML = html;
 }
 
 // ============================================================
@@ -636,9 +913,14 @@ dom.fileInput.addEventListener('change', () => {
     dom.fileInput.value = '';
 });
 
+// Export button
+const btnExport = document.getElementById('btn-export');
+if (btnExport) btnExport.addEventListener('click', exportConversation);
+
 // ============================================================
 // Initialize
 // ============================================================
 connect();
 loadDocuments();
+setupCitationDeepLinks();
 addAudit('GroundTruth initialized');

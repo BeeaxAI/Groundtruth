@@ -19,6 +19,9 @@
                 <span class="logo__badge">Zero Hallucination</span>
             </div>
             <div class="header__right">
+                <button class="btn-export" id="btn-export" title="Export conversation">
+                    &#x1F4CB; Export
+                </button>
                 <div class="status">
                     <div class="status__dot"></div>
                     <span class="status__text">Connecting...</span>
@@ -110,7 +113,21 @@
                 </div>
             </div>
 
-            <div class="panel-section" style="max-height:180px; display:flex; flex-direction:column;">
+            <div class="panel-section">
+                <div class="panel-header">Session Analytics</div>
+                <div id="session-analytics" style="padding:8px;">
+                    <div class="empty-state">Ask questions to see live analytics.</div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-header">Knowledge Gaps</div>
+                <div id="knowledge-gaps" style="padding:8px; max-height:120px; overflow-y:auto;">
+                    <div class="empty-state">No gaps detected yet.</div>
+                </div>
+            </div>
+
+            <div class="panel-section" style="max-height:140px; display:flex; flex-direction:column;">
                 <div class="panel-header">Audit Trail</div>
                 <div class="audit" id="audit"></div>
             </div>

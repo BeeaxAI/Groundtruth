@@ -7,6 +7,7 @@ Now powered by Super Memory for compressed, semantic-aware retrieval.
 import asyncio
 import re
 import logging
+from datetime import datetime
 from typing import Optional
 from core.models import Document, DocumentChunk, Citation
 from core.chunker import DocumentChunker, generate_doc_id
@@ -39,6 +40,8 @@ class DocumentService:
         self.super_memory: Optional[SuperMemory] = None
 
         self._documents: dict[str, Document] = {}
+        self._citation_heatmap: dict[str, int] = {}  # chunk_id → citation_count
+        self._knowledge_gaps: list[dict] = []
 
     def init_super_memory(self, gemini_client=None, embedding_model: str = "text-embedding-004"):
         """Initialize Super Memory with optional Gemini client for embeddings."""
@@ -480,4 +483,250 @@ class DocumentService:
             "overall_score": round(overall, 1),
             "level": level,
             "breakdown": {k: round(v, 1) for k, v in scores.items()},
+        }
+
+    # ================================================================
+    # Feature: Hallucination Heatmap
+    # ================================================================
+
+    def record_citation(self, chunk_id: str) -> None:
+        """Increment the citation count for a chunk."""
+        self._citation_heatmap[chunk_id] = self._citation_heatmap.get(chunk_id, 0) + 1
+
+    def get_heatmap(self, doc_id: str = None) -> dict:
+        """
+        Return per-chunk citation frequency with heat levels.
+
+        Heat levels:
+          frozen = 0 citations  (never referenced)
+          cold   = 1-2 citations
+          warm   = 3-5 citations
+          hot    = 6+  citations
+
+        If doc_id is provided, returns heatmap for that document only.
+        Otherwise returns heatmaps for all documents.
+        """
+        if doc_id:
+            doc = self._documents.get(doc_id)
+            if not doc:
+                return {}
+            return self._build_doc_heatmap(doc)
+
+        return {did: self._build_doc_heatmap(d) for did, d in self._documents.items()}
+
+    def _build_doc_heatmap(self, doc: Document) -> dict:
+        """Build heatmap data for a single document."""
+        chunks_data = []
+        heat_counts = {"hot": 0, "warm": 0, "cold": 0, "frozen": 0}
+
+        for chunk in doc.chunks:
+            count = self._citation_heatmap.get(chunk.chunk_id, 0)
+            level = self._heat_level(count)
+            heat_counts[level] += 1
+            chunks_data.append({
+                "chunk_id": chunk.chunk_id,
+                "index": chunk.index,
+                "citation_count": count,
+                "heat_level": level,
+                "preview": chunk.content[:120] + ("..." if len(chunk.content) > 120 else ""),
+            })
+
+        total = len(doc.chunks)
+        coverage = ((heat_counts["hot"] + heat_counts["warm"] + heat_counts["cold"])
+                    / max(total, 1)) * 100
+
+        return {
+            "doc_id": doc.doc_id,
+            "name": doc.name,
+            "total_chunks": total,
+            "coverage_pct": round(coverage, 1),
+            "heat_summary": heat_counts,
+            "chunks": chunks_data,
+        }
+
+    @staticmethod
+    def _heat_level(count: int) -> str:
+        """Classify a citation count into a heat level."""
+        if count == 0:
+            return "frozen"
+        elif count <= 2:
+            return "cold"
+        elif count <= 5:
+            return "warm"
+        else:
+            return "hot"
+
+    # ================================================================
+    # Feature: Knowledge Gap Detector
+    # ================================================================
+
+    _GAP_STOP_WORDS = frozenset({
+        'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+        'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+        'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
+        'on', 'with', 'at', 'by', 'from', 'as', 'into', 'and', 'or', 'but',
+        'not', 'no', 'if', 'then', 'than', 'that', 'this', 'what', 'which',
+        'who', 'how', 'his', 'her', 'its', 'he', 'she', 'it', 'they', 'them',
+        'we', 'you', 'your', 'my', 'me', 'about', 'tell', 'know', 'please',
+        'want', 'need', 'like', 'just', 'get', 'got', 'also', 'some', 'any',
+        'more', 'much', 'many', 'very', 'too', 'so', 'up', 'out', 'there',
+    })
+
+    def record_gap(self, query: str, confidence_score: float, status: str) -> None:
+        """
+        Record a knowledge gap when a query could not be answered well.
+
+        Only records if confidence_score < 40 or status is one of
+        'no_match', 'no_context', or 'ungrounded'.
+        """
+        should_record = (
+            confidence_score < 40
+            or status in ('no_match', 'no_context', 'ungrounded')
+        )
+        if not should_record:
+            return
+
+        self._knowledge_gaps.append({
+            "query": query.strip(),
+            "confidence_score": confidence_score,
+            "status": status,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+        logger.info(
+            f"Knowledge gap recorded: status={status}, "
+            f"confidence={confidence_score}, query='{query[:80]}'"
+        )
+
+    def _extract_phrases(self, text: str) -> list[str]:
+        """
+        Extract 2-3 word key phrases from text using simple word filtering.
+
+        Returns lowercased phrases built from consecutive meaningful words.
+        """
+        words = re.findall(r'[a-zA-Z]{3,}', text.lower())
+        meaningful = [w for w in words if w not in self._GAP_STOP_WORDS]
+
+        phrases = []
+        # Build bigrams and trigrams from consecutive meaningful words
+        for i in range(len(meaningful)):
+            if i + 1 < len(meaningful):
+                phrases.append(f"{meaningful[i]} {meaningful[i + 1]}")
+            if i + 2 < len(meaningful):
+                phrases.append(
+                    f"{meaningful[i]} {meaningful[i + 1]} {meaningful[i + 2]}"
+                )
+        # If only one meaningful word, use it as a single-word phrase
+        if len(meaningful) == 1:
+            phrases.append(meaningful[0])
+
+        return phrases
+
+    def get_knowledge_gaps(self) -> dict:
+        """
+        Analyse recorded knowledge gaps by clustering similar queries.
+
+        Returns:
+            {
+                "gaps": [
+                    {
+                        "topic": "key phrase",
+                        "frequency": int,
+                        "last_asked": "ISO timestamp",
+                        "sample_queries": ["..."],
+                    },
+                    ...
+                ],
+                "suggestions": ["Recommended document topic to upload", ...],
+                "total_gap_queries": int,
+            }
+        """
+        if not self._knowledge_gaps:
+            return {"gaps": [], "suggestions": [], "total_gap_queries": 0}
+
+        # --- Step 1: Extract phrases from every gap query and tally ---
+        # phrase -> { count, last_timestamp, sample_queries }
+        phrase_data: dict[str, dict] = {}
+
+        for gap in self._knowledge_gaps:
+            query = gap["query"]
+            timestamp = gap["timestamp"]
+            phrases = self._extract_phrases(query)
+
+            for phrase in phrases:
+                if phrase not in phrase_data:
+                    phrase_data[phrase] = {
+                        "count": 0,
+                        "last_timestamp": timestamp,
+                        "sample_queries": [],
+                    }
+                entry = phrase_data[phrase]
+                entry["count"] += 1
+                if timestamp > entry["last_timestamp"]:
+                    entry["last_timestamp"] = timestamp
+                # Keep up to 5 unique sample queries per phrase
+                if (query not in entry["sample_queries"]
+                        and len(entry["sample_queries"]) < 5):
+                    entry["sample_queries"].append(query)
+
+        # --- Step 2: Deduplicate overlapping phrases ---
+        # If a bigram is a subset of a trigram with similar count, drop it.
+        sorted_phrases = sorted(
+            phrase_data.items(), key=lambda x: (-x[1]["count"], x[0])
+        )
+
+        # Build a set of phrases to suppress (subsumed by longer phrases)
+        suppressed: set[str] = set()
+        phrase_words_map = {p: set(p.split()) for p, _ in sorted_phrases}
+        for i, (p1, d1) in enumerate(sorted_phrases):
+            w1 = phrase_words_map[p1]
+            for j, (p2, d2) in enumerate(sorted_phrases):
+                if i == j or p2 in suppressed:
+                    continue
+                w2 = phrase_words_map[p2]
+                # If p1 is a strict subset of p2 and p2 has at least half the count
+                if w1 < w2 and d2["count"] >= d1["count"] * 0.5:
+                    suppressed.add(p1)
+                    # Merge sample queries into the longer phrase
+                    for q in d1["sample_queries"]:
+                        if (q not in d2["sample_queries"]
+                                and len(d2["sample_queries"]) < 5):
+                            d2["sample_queries"].append(q)
+                    break
+
+        # --- Step 3: Build ranked gap list ---
+        gaps = []
+        seen_topics: set[str] = set()
+        for phrase, data in sorted_phrases:
+            if phrase in suppressed:
+                continue
+            if data["count"] < 1:
+                continue
+            # Avoid near-duplicate topics
+            if phrase in seen_topics:
+                continue
+            seen_topics.add(phrase)
+            gaps.append({
+                "topic": phrase,
+                "frequency": data["count"],
+                "last_asked": data["last_timestamp"],
+                "sample_queries": data["sample_queries"],
+            })
+
+        # Limit to top 20 gaps
+        gaps = gaps[:20]
+
+        # --- Step 4: Generate upload suggestions ---
+        suggestions = []
+        for gap in gaps[:10]:
+            topic = gap["topic"]
+            # Capitalise for display
+            display_topic = topic.title()
+            suggestions.append(
+                f"Upload documents about: {display_topic}"
+            )
+
+        return {
+            "gaps": gaps,
+            "suggestions": suggestions,
+            "total_gap_queries": len(self._knowledge_gaps),
         }
