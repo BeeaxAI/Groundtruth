@@ -886,6 +886,65 @@ function renderKnowledgeGaps(data) {
 }
 
 // ============================================================
+// Collapsible Side Panels
+// ============================================================
+function initPanelState() {
+    const app = document.querySelector('.app');
+    const sidebarExpBtn = document.getElementById('btn-expand-sidebar');
+    const panelExpBtn = document.getElementById('btn-expand-panel');
+
+    // Restore from localStorage
+    if (localStorage.getItem('gt-sidebar-collapsed') === '1') {
+        app.classList.add('app--sidebar-collapsed');
+        if (sidebarExpBtn) sidebarExpBtn.style.display = 'flex';
+    }
+    if (localStorage.getItem('gt-panel-collapsed') === '1') {
+        app.classList.add('app--panel-collapsed');
+        if (panelExpBtn) panelExpBtn.style.display = 'flex';
+    }
+}
+
+function toggleSidebar() {
+    const app = document.querySelector('.app');
+    const sidebarExpBtn = document.getElementById('btn-expand-sidebar');
+    const collapsed = app.classList.toggle('app--sidebar-collapsed');
+    localStorage.setItem('gt-sidebar-collapsed', collapsed ? '1' : '0');
+    if (sidebarExpBtn) sidebarExpBtn.style.display = collapsed ? 'flex' : 'none';
+    addAudit(collapsed ? 'Sidebar collapsed' : 'Sidebar expanded');
+}
+
+function toggleRightPanel() {
+    const app = document.querySelector('.app');
+    const panelExpBtn = document.getElementById('btn-expand-panel');
+    const collapsed = app.classList.toggle('app--panel-collapsed');
+    localStorage.setItem('gt-panel-collapsed', collapsed ? '1' : '0');
+    if (panelExpBtn) panelExpBtn.style.display = collapsed ? 'flex' : 'none';
+    addAudit(collapsed ? 'Right panel collapsed' : 'Right panel expanded');
+}
+
+// ============================================================
+// Theme Toggle (Premium White/Dark Mode)
+// ============================================================
+function initTheme() {
+    const saved = localStorage.getItem('gt-theme') || 'dark';
+    applyTheme(saved);
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const label = document.getElementById('theme-label');
+    if (label) label.textContent = theme === 'light' ? 'Light' : 'Dark';
+    localStorage.setItem('gt-theme', theme);
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    addAudit(`Theme: ${next} mode`);
+}
+
+// ============================================================
 // Event Listeners
 // ============================================================
 dom.btnSend.addEventListener('click', () => sendTextQuery(dom.textInput.value));
@@ -917,9 +976,25 @@ dom.fileInput.addEventListener('change', () => {
 const btnExport = document.getElementById('btn-export');
 if (btnExport) btnExport.addEventListener('click', exportConversation);
 
+// Theme toggle
+const btnTheme = document.getElementById('theme-toggle');
+if (btnTheme) btnTheme.addEventListener('click', toggleTheme);
+
+// Panel collapse/expand
+const btnCollapseSidebar = document.getElementById('btn-collapse-sidebar');
+const btnExpandSidebar = document.getElementById('btn-expand-sidebar');
+const btnCollapsePanel = document.getElementById('btn-collapse-panel');
+const btnExpandPanel = document.getElementById('btn-expand-panel');
+if (btnCollapseSidebar) btnCollapseSidebar.addEventListener('click', toggleSidebar);
+if (btnExpandSidebar) btnExpandSidebar.addEventListener('click', toggleSidebar);
+if (btnCollapsePanel) btnCollapsePanel.addEventListener('click', toggleRightPanel);
+if (btnExpandPanel) btnExpandPanel.addEventListener('click', toggleRightPanel);
+
 // ============================================================
 // Initialize
 // ============================================================
+initTheme();
+initPanelState();
 connect();
 loadDocuments();
 setupCitationDeepLinks();

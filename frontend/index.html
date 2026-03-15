@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/styles.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%234ade80' rx='20' width='100' height='100'/><text y='72' x='18' font-size='60' font-weight='bold'>G</text></svg>">
+    <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('gt-theme')||'dark')</script>
 </head>
 <body>
     <div class="app">
@@ -29,11 +30,24 @@
                 <div class="status">
                     <span id="doc-count">0 docs</span>
                 </div>
+                <span class="theme-label" id="theme-label">Dark</span>
+                <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle theme">
+                    <div class="theme-toggle__track"></div>
+                    <div class="theme-toggle__stars">
+                        <span class="theme-toggle__star"></span>
+                        <span class="theme-toggle__star"></span>
+                        <span class="theme-toggle__star"></span>
+                    </div>
+                    <div class="theme-toggle__thumb"></div>
+                </button>
             </div>
         </header>
 
         <!-- ===== SIDEBAR: Documents ===== -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
+            <button class="collapse-btn collapse-btn--left" id="btn-collapse-sidebar" title="Collapse sidebar">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 3L5 7L9 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
             <div class="sidebar__head">
                 <div class="sidebar__title">Knowledge Base</div>
                 <div class="upload" id="upload-zone">
@@ -92,7 +106,10 @@
         </main>
 
         <!-- ===== RIGHT PANEL: Camera, Citations, Audit ===== -->
-        <aside class="right-panel">
+        <aside class="right-panel" id="right-panel">
+            <button class="collapse-btn collapse-btn--right" id="btn-collapse-panel" title="Collapse panel">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3L9 7L5 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
             <div class="panel-section">
                 <div class="panel-header">Camera Feed</div>
                 <div class="camera-wrap">
@@ -133,6 +150,14 @@
             </div>
         </aside>
     </div>
+
+    <!-- Floating expand buttons (visible when panels are collapsed) -->
+    <button class="sidebar-expand-btn" id="btn-expand-sidebar" title="Expand sidebar">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3L9 7L5 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button class="panel-expand-btn" id="btn-expand-panel" title="Expand panel">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 3L5 7L9 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
 
     <script type="module" src="/static/js/app.js"></script>
 </body>

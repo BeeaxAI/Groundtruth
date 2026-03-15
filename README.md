@@ -10,7 +10,7 @@ Enterprise AI adoption is blocked by **hallucination**. When AI fabricates answe
 
 **GroundTruth** is a real-time, multimodal knowledge agent that **never hallucinates**. It uses voice, vision, and text to interact, while a 5-layer grounding architecture ensures every response is cited, validated, and auditable.
 
-### Key Features
+### Core Features
 
 | Feature | Description |
 |---------|------------|
@@ -22,37 +22,59 @@ Enterprise AI adoption is blocked by **hallucination**. When AI fabricates answe
 | **Audit Trail** | Full transparency log: every query, response, citation, and validation |
 | **Enterprise Security** | Prompt injection defense, input sanitization, content treated as data not instructions |
 
+### Intelligence Features (10 Advanced Capabilities)
+
+| Feature | Description |
+|---------|------------|
+| **Confidence Score Meter** | Real-time radial gauge per response with formula: `C = 0.4×Coverage + 0.3×Sources + 0.3×Grounding`. Includes info button with interactive breakdown tooltip |
+| **Smart Follow-up Chips** | 3-strategy algorithm generates contextual follow-up questions from adjacent chunks, Super Memory keywords, and bigram analysis |
+| **Document Health Score** | Per-document quality grade (Excellent/Good/Fair/Low) computed from content richness, keyword diversity, embedding coverage, and structure quality |
+| **Hallucination Heatmap** | Visual citation density strip per document — shows which chunks get cited most (frozen → cold → warm → hot color scale) |
+| **Knowledge Gap Detector** | Tracks low-confidence queries, extracts bigram/trigram phrases, clusters by frequency, and suggests specific documents to upload |
+| **Session Analytics** | Real-time dashboard tracking total queries, average confidence, grounded rate, session duration, and confidence range |
+| **Answer Export** | One-click download of full conversation with citations, grounding status, confidence scores, and session statistics as formatted .txt |
+| **Auto-Tag Documents** | Extracts keywords from Super Memory insights and displays them as colored tag chips on each uploaded document |
+| **Citation Deep-Links** | Click any `[Source N]` in chat to auto-scroll and highlight the matching citation card in the right panel |
+| **Session Keep-Alive** | Silent 10ms PCM audio frames sent every 15 seconds to prevent Gemini Live API session timeouts |
+
+### UI/UX Features
+
+| Feature | Description |
+|---------|------------|
+| **Premium Dark/Light Theme** | Toggle between dark mode and a color-graded white theme with warm ivory tones, glass morphism, layered card depth, and blue-tinted shadows. Persists via localStorage |
+| **Collapsible Side Panels** | Both sidebar and right panel collapse/expand with smooth 0.4s animations, floating re-expand tabs, and persistent state across sessions |
+
 ## Architecture
 
 ```
 groundtruth/
 ├── backend/
-│   ├── app.py                     # FastAPI entry point (Phase 8)
-│   ├── config.py                  # Pydantic settings (Phase 1)
+│   ├── app.py                     # FastAPI entry point with lifespan & Super Memory init
+│   ├── config.py                  # Pydantic settings (gemini models, chunking, audio, security)
 │   ├── core/
-│   │   ├── models.py              # Data models (Phase 2)
-│   │   ├── chunker.py             # Paragraph-aware chunking (Phase 2)
-│   │   ├── extractor.py           # PDF/DOCX/TXT extraction (Phase 3)
-│   │   ├── retriever.py           # BM25 ranking algorithm (Phase 4)
-│   │   ├── grounding.py           # Zero-hallucination engine (Phase 5-6)
-│   │   └── super_memory.py        # Super Memory compression engine (Phase 24)
+│   │   ├── models.py              # Data models (Document, Chunk, Citation, GroundingResult)
+│   │   ├── chunker.py             # Paragraph-aware chunking with overlap
+│   │   ├── extractor.py           # PDF/DOCX/TXT/MD extraction (PyPDF2, python-docx)
+│   │   ├── retriever.py           # BM25 Okapi ranking algorithm
+│   │   ├── grounding.py           # Zero-hallucination engine + confidence scoring
+│   │   └── super_memory.py        # 5-technique compression engine (853 lines)
 │   ├── api/
-│   │   ├── documents.py           # Document CRUD + memory stats (Phase 9)
-│   │   ├── query.py               # Grounded text query API (Phase 10)
-│   │   └── websocket_handler.py   # Live API session manager (Phase 11-14)
+│   │   ├── documents.py           # Document CRUD + health + heatmap + gaps + insights
+│   │   ├── query.py               # Grounded text query API (REST fallback)
+│   │   └── websocket_handler.py   # Live API session manager with keep-alive
 │   ├── services/
-│   │   └── document_service.py    # Orchestrates extract→chunk→index→memory (Phase 8)
+│   │   └── document_service.py    # Orchestrates extract→chunk→index→memory + analytics
 │   ├── utils/
-│   │   └── security.py            # Injection defense + rate limiter (Phase 7)
+│   │   └── security.py            # Injection defense + rate limiter
 │   └── tests/
-│       └── test_core.py           # Unit tests (Phase 23)
+│       └── test_core.py           # Unit tests
 ├── frontend/
-│   ├── index.html                 # App shell (Phase 15)
-│   ├── css/styles.css             # Design system (Phase 15)
+│   ├── index.html                 # App shell with theme toggle & collapsible panels
+│   ├── css/styles.css             # Design system (dark + premium white theme, ~1400 lines)
 │   └── js/
-│       ├── app.js                 # Main controller (Phase 15-22)
-│       ├── audio-engine.js        # Mic recording + playback (Phase 18-19)
-│       └── camera-engine.js       # Camera capture @ 1FPS (Phase 20)
+│       ├── app.js                 # Main controller (~970 lines, 12 feature modules)
+│       ├── audio-engine.js        # Mic recording + playback (Web Audio API)
+│       └── camera-engine.js       # Camera capture @ 1FPS (MediaDevices)
 ├── deployment/
 │   ├── deploy.sh                  # One-command Cloud Run deploy
 │   └── terraform/main.tf          # Full IaC (bonus points)
@@ -69,14 +91,15 @@ groundtruth/
 
 | Layer | Technology |
 |-------|-----------|
-| AI Model | `gemini-2.5-flash-native-audio-preview-12-2025` (Live API) |
-| Embeddings | `text-embedding-004` (Super Memory) |
+| AI Model (Live) | `gemini-2.5-flash-native-audio-preview-12-2025` (real-time audio/video) |
+| AI Model (Text) | `gemini-2.5-flash-preview-05-20` (REST fallback) |
+| Embeddings | `gemini-embedding-001` (3072-dim → 96 bytes binary quantized) |
 | SDK | Google GenAI SDK (`google-genai`) |
 | Backend | Python 3.11, FastAPI, WebSockets, Uvicorn |
-| Retrieval | Hybrid: BM25 (Okapi) + Binary Embeddings + Hierarchical Routing |
+| Retrieval | Hybrid: BM25 (Okapi) + Binary Embeddings + Hierarchical Routing + RRF |
 | Document Processing | PyPDF2, python-docx |
 | Math/Compression | NumPy (binary quantization, Hamming distance) |
-| Frontend | Vanilla HTML/JS, Web Audio API, MediaDevices |
+| Frontend | Vanilla HTML/JS/CSS, Web Audio API, MediaDevices |
 | Deployment | Google Cloud Run, Docker, Terraform |
 
 ## Quick Start
@@ -130,11 +153,11 @@ GroundTruth includes a **Super Memory** system that stores document knowledge in
 
 ### Technique 1: Binary Quantized Embeddings (32x compression)
 
-Converts Gemini `text-embedding-004` float vectors into compact binary representations.
+Converts Gemini `gemini-embedding-001` float vectors into compact binary representations.
 
 ```
 Math:  b_i = 1 if e_i > 0, else 0
-Size:  768 × float32 = 3,072 bytes → 768 bits = 96 bytes
+Size:  3,072 × float32 = 12,288 bytes → 3,072 bits = 384 bytes (32x compression)
 Speed: Hamming distance via XOR + popcount (~100x faster than cosine)
 ```
 
@@ -220,9 +243,57 @@ Compression ratio:                     ~5.3x
 
 | Endpoint | Description |
 |----------|------------|
-| `GET /api/documents/memory/stats` | Compression statistics for all 5 techniques |
-| `GET /api/documents/memory/duplicates` | Detect near-duplicate documents via SimHash |
-| `GET /api/documents/{doc_id}/insights` | Keywords, summary, and embedding status per document |
+| `POST /api/documents/upload` | Upload PDF, DOCX, TXT, or MD files |
+| `GET /api/documents` | List all documents with metadata |
+| `DELETE /api/documents/{doc_id}` | Remove a document |
+| `GET /api/documents/{doc_id}/health` | Document health score with breakdown |
+| `GET /api/documents/health` | Health scores for all documents |
+| `GET /api/documents/{doc_id}/heatmap` | Citation heatmap per chunk |
+| `GET /api/documents/heatmap` | Heatmaps for all documents |
+| `GET /api/documents/gaps` | Knowledge gap analysis with upload suggestions |
+| `GET /api/documents/{doc_id}/insights` | Auto-tags, keywords, summary per document |
+| `GET /api/documents/memory/stats` | Super Memory compression statistics |
+| `GET /api/documents/memory/duplicates` | Near-duplicate detection via SimHash |
+| `POST /api/query` | Grounded text query (REST fallback) |
+| `WS /ws/live` | WebSocket for real-time voice/video/text with Gemini Live API |
+
+## Confidence Score Formula
+
+Every response gets a real-time confidence score computed as:
+
+```
+C = 0.4 × Citation Coverage + 0.3 × Source Quality + 0.3 × Grounding Status
+
+Where:
+  Citation Coverage  = % of response backed by document sources
+  Source Quality     = relevance score of retrieved chunks (0-100)
+  Grounding Status   = 100 if grounded, 50 if partial, 0 if ungrounded
+```
+
+The confidence meter displays as an animated radial gauge with color coding:
+- **Green (75-100%)** — High confidence, well-grounded
+- **Amber (45-74%)** — Medium confidence, partial grounding
+- **Red (0-44%)** — Low confidence, weak or no grounding
+
+## Document Health Score
+
+Each uploaded document receives a health grade:
+
+```
+H = 0.25 × Content Richness + 0.25 × Keyword Diversity
+  + 0.25 × Embedding Coverage + 0.25 × Structure Quality
+
+Grades: Excellent (80%+) | Good (60-79%) | Fair (40-59%) | Low (<40%)
+```
+
+## Premium Theme System
+
+GroundTruth ships with two professionally designed themes:
+
+- **Dark Mode** — Deep navy-charcoal backgrounds with ambient green/blue glow, optimized for low-light environments
+- **Light Mode** — Color-graded warm ivory palette (`#f8f7f4` → `#f2f1ec` → `#eae9e4`), glass morphism header with `backdrop-filter: blur(12px)`, layered card depth with blue-tinted shadows, deeper green accent (`#16a34a`) for white-background contrast
+
+Theme persists across sessions via `localStorage`. Toggle with the animated sun/moon switch in the header.
 
 ## Security
 
