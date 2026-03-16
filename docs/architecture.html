@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GroundTruth — Architecture Diagram</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #0a0a14;
+    color: #e8e8f0;
+    min-height: 100vh;
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .diagram-title {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  .diagram-title h1 {
+    font-size: 32px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #4ade80, #22d3ee);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.5px;
+  }
+  .diagram-title p {
+    font-size: 14px;
+    color: #888;
+    margin-top: 6px;
+  }
+
+  .arch {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    max-width: 1100px;
+    width: 100%;
+  }
+
+  .row {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    align-items: stretch;
+  }
+
+  .box {
+    border-radius: 16px;
+    padding: 20px 24px;
+    position: relative;
+    backdrop-filter: blur(8px);
+    transition: transform 0.2s;
+    flex: 1;
+    min-width: 0;
+  }
+  .box:hover { transform: translateY(-2px); }
+
+  .box__title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .box__title .icon {
+    font-size: 18px;
+    line-height: 1;
+  }
+  .box__items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chip {
+    font-size: 11.5px;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap;
+  }
+
+  /* --- Color themes per section --- */
+  .box--client {
+    background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(99,102,241,0.05));
+    border: 1px solid rgba(99,102,241,0.3);
+  }
+  .box--client .box__title { color: #818cf8; }
+  .box--client .chip { border-color: rgba(99,102,241,0.2); color: #c7d2fe; }
+
+  .box--gemini {
+    background: linear-gradient(135deg, rgba(74,222,128,0.18), rgba(74,222,128,0.05));
+    border: 1px solid rgba(74,222,128,0.35);
+    text-align: center;
+  }
+  .box--gemini .box__title { color: #4ade80; justify-content: center; }
+  .box--gemini .chip { border-color: rgba(74,222,128,0.25); color: #bbf7d0; }
+
+  .box--core {
+    background: linear-gradient(135deg, rgba(251,191,36,0.15), rgba(251,191,36,0.04));
+    border: 1px solid rgba(251,191,36,0.3);
+  }
+  .box--core .box__title { color: #fbbf24; }
+  .box--core .chip { border-color: rgba(251,191,36,0.2); color: #fef3c7; }
+
+  .box--memory {
+    background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(236,72,153,0.04));
+    border: 1px solid rgba(236,72,153,0.3);
+  }
+  .box--memory .box__title { color: #f472b6; }
+  .box--memory .chip { border-color: rgba(236,72,153,0.2); color: #fce7f3; }
+
+  .box--pipeline {
+    background: linear-gradient(135deg, rgba(34,211,238,0.15), rgba(34,211,238,0.04));
+    border: 1px solid rgba(34,211,238,0.3);
+  }
+  .box--pipeline .box__title { color: #22d3ee; }
+  .box--pipeline .chip { border-color: rgba(34,211,238,0.2); color: #cffafe; }
+
+  .box--deploy {
+    background: linear-gradient(135deg, rgba(168,85,247,0.15), rgba(168,85,247,0.04));
+    border: 1px solid rgba(168,85,247,0.3);
+  }
+  .box--deploy .box__title { color: #c084fc; }
+  .box--deploy .chip { border-color: rgba(168,85,247,0.2); color: #e9d5ff; }
+
+  .box--intelligence {
+    background: linear-gradient(135deg, rgba(251,146,60,0.15), rgba(251,146,60,0.04));
+    border: 1px solid rgba(251,146,60,0.3);
+  }
+  .box--intelligence .box__title { color: #fb923c; }
+  .box--intelligence .chip { border-color: rgba(251,146,60,0.2); color: #fed7aa; }
+
+  .box--security {
+    background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(239,68,68,0.04));
+    border: 1px solid rgba(239,68,68,0.3);
+  }
+  .box--security .box__title { color: #f87171; }
+  .box--security .chip { border-color: rgba(239,68,68,0.2); color: #fecaca; }
+
+  /* --- Arrows --- */
+  .arrows {
+    display: flex;
+    justify-content: center;
+    gap: 120px;
+    padding: 4px 0;
+  }
+  .arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .arrow__line {
+    width: 2px;
+    height: 18px;
+    background: linear-gradient(to bottom, #4ade80, #22d3ee);
+    border-radius: 1px;
+  }
+  .arrow__head {
+    width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #22d3ee;
+  }
+  .arrow__head--up {
+    border-top: none;
+    border-bottom: 6px solid #4ade80;
+  }
+  .arrow__label {
+    font-size: 10px;
+    color: #666;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .bidir {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .bidir .arrow__head--up { margin-bottom: -1px; }
+  .bidir .arrow__head { margin-top: -1px; }
+
+  /* --- Flow section --- */
+  .flow-row {
+    display: flex;
+    gap: 0;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: nowrap;
+    margin-top: 8px;
+  }
+  .flow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 140px;
+    text-align: center;
+  }
+  .flow-step__num {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #4ade80, #22c55e);
+    color: #000;
+    font-weight: 700;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .flow-step__text {
+    font-size: 11px;
+    color: #aaa;
+    line-height: 1.3;
+    max-width: 130px;
+  }
+  .flow-arrow {
+    font-size: 18px;
+    color: #4ade80;
+    margin: 0 4px;
+    margin-top: -12px;
+  }
+
+  .footer {
+    margin-top: 30px;
+    text-align: center;
+    font-size: 12px;
+    color: #555;
+  }
+  .footer a {
+    color: #4ade80;
+    text-decoration: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="diagram-title">
+  <h1>GroundTruth — System Architecture</h1>
+  <p>Zero-Hallucination Enterprise Knowledge Agent &nbsp;|&nbsp; Gemini Live Agent Challenge 2026</p>
+</div>
+
+<div class="arch">
+
+  <!-- Row 1: Client -->
+  <div class="row">
+    <div class="box box--client">
+      <div class="box__title"><span class="icon">🖥️</span> Browser Client</div>
+      <div class="box__items">
+        <span class="chip">🎤 Microphone (16kHz PCM)</span>
+        <span class="chip">📷 Camera (JPEG @ 1 FPS)</span>
+        <span class="chip">⌨️ Text Input</span>
+        <span class="chip">🔊 Speaker (24kHz PCM)</span>
+        <span class="chip">🌗 Dark / Light Theme</span>
+        <span class="chip">📐 Collapsible Panels</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow: Client ↔ Server -->
+  <div class="arrows">
+    <div class="arrow">
+      <div class="arrow__label">WebSocket /ws/live</div>
+      <div class="bidir">
+        <div class="arrow__head arrow__head--up"></div>
+        <div class="arrow__line" style="height: 14px;"></div>
+        <div class="arrow__head"></div>
+      </div>
+      <div class="arrow__label">audio + video + text</div>
+    </div>
+    <div class="arrow">
+      <div class="arrow__label">REST /api/*</div>
+      <div class="bidir">
+        <div class="arrow__head arrow__head--up"></div>
+        <div class="arrow__line" style="height: 14px;"></div>
+        <div class="arrow__head"></div>
+      </div>
+      <div class="arrow__label">upload, query, health</div>
+    </div>
+  </div>
+
+  <!-- Row 2: Server + Gemini -->
+  <div class="row">
+    <div class="box box--core" style="flex: 2;">
+      <div class="box__title"><span class="icon">⚡</span> FastAPI Backend (Python 3.11)</div>
+      <div class="box__items">
+        <span class="chip">WebSocket Handler</span>
+        <span class="chip">Grounding Engine</span>
+        <span class="chip">Citation Validator</span>
+        <span class="chip">Document Service</span>
+        <span class="chip">BM25 Retriever</span>
+        <span class="chip">Input Sanitizer</span>
+        <span class="chip">Rate Limiter</span>
+        <span class="chip">Confidence Scorer</span>
+        <span class="chip">Health Scorer</span>
+        <span class="chip">Follow-up Generator</span>
+        <span class="chip">Keepalive Loop</span>
+      </div>
+    </div>
+    <div class="box box--gemini">
+      <div class="box__title"><span class="icon">🤖</span> Google Gemini APIs</div>
+      <div class="box__items" style="justify-content: center;">
+        <span class="chip">Live API (Audio/Video)</span>
+        <span class="chip">Text Generation</span>
+        <span class="chip">Embedding API</span>
+      </div>
+      <div style="margin-top: 12px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #86efac; text-align: center;">
+        gemini-2.5-flash-native-audio<br>
+        gemini-2.5-flash-preview<br>
+        gemini-embedding-001
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 3: Super Memory + Document Pipeline -->
+  <div class="row">
+    <div class="box box--memory">
+      <div class="box__title"><span class="icon">🧠</span> Super Memory Engine (5 Techniques)</div>
+      <div class="box__items">
+        <span class="chip">Binary Embeddings (32x)</span>
+        <span class="chip">Bloom Filter Index</span>
+        <span class="chip">SimHash Fingerprint</span>
+        <span class="chip">Hierarchical Levels</span>
+        <span class="chip">Reciprocal Rank Fusion</span>
+        <span class="chip">Hamming Distance Search</span>
+      </div>
+    </div>
+    <div class="box box--pipeline">
+      <div class="box__title"><span class="icon">📄</span> Document Pipeline</div>
+      <div class="box__items">
+        <span class="chip">PDF / DOCX / TXT / MD</span>
+        <span class="chip">PyPDF2 Extraction</span>
+        <span class="chip">Paragraph Chunking</span>
+        <span class="chip">Overlap Segments</span>
+        <span class="chip">BM25 Indexing</span>
+        <span class="chip">Auto-Tag Keywords</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 4: Intelligence + Security + Deploy -->
+  <div class="row">
+    <div class="box box--intelligence">
+      <div class="box__title"><span class="icon">📊</span> 10 Intelligence Features</div>
+      <div class="box__items">
+        <span class="chip">Confidence Meter</span>
+        <span class="chip">Smart Follow-ups</span>
+        <span class="chip">Doc Health Score</span>
+        <span class="chip">Hallucination Heatmap</span>
+        <span class="chip">Knowledge Gaps</span>
+        <span class="chip">Session Analytics</span>
+        <span class="chip">Answer Export</span>
+        <span class="chip">Auto-Tags</span>
+        <span class="chip">Citation Deep-Links</span>
+        <span class="chip">Session Keep-Alive</span>
+      </div>
+    </div>
+    <div class="box box--security" style="flex: 0.6;">
+      <div class="box__title"><span class="icon">🔒</span> Security</div>
+      <div class="box__items">
+        <span class="chip">Injection Defense</span>
+        <span class="chip">Rate Limiting</span>
+        <span class="chip">Input Sanitize</span>
+        <span class="chip">Non-root Docker</span>
+      </div>
+    </div>
+    <div class="box box--deploy" style="flex: 0.6;">
+      <div class="box__title"><span class="icon">☁️</span> GCP Deploy</div>
+      <div class="box__items">
+        <span class="chip">Cloud Run</span>
+        <span class="chip">Cloud Build</span>
+        <span class="chip">Artifact Registry</span>
+        <span class="chip">Terraform IaC</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Flow: 5-Layer Zero Hallucination -->
+  <div style="margin-top: 12px; text-align: center;">
+    <div style="font-size: 13px; font-weight: 600; color: #4ade80; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px;">
+      5-Layer Zero-Hallucination Pipeline
+    </div>
+    <div class="flow-row">
+      <div class="flow-step">
+        <div class="flow-step__num">1</div>
+        <div class="flow-step__text">Strict System Instructions</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-step__num">2</div>
+        <div class="flow-step__text">Hybrid Document Retrieval</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-step__num">3</div>
+        <div class="flow-step__text">Citation-Enforced Prompts</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-step__num">4</div>
+        <div class="flow-step__text">Gemini Live API Response</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-step__num">5</div>
+        <div class="flow-step__text">Post-Response Validation</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <p>GroundTruth &nbsp;|&nbsp; <a href="https://github.com/BeeaxAI/Groundtruth">github.com/BeeaxAI/Groundtruth</a> &nbsp;|&nbsp; Gemini Live Agent Challenge 2026</p>
+</div>
+
+</body>
+</html>
