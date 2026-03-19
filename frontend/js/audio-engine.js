@@ -149,7 +149,7 @@ export class AudioPlayer {
     stop() {
         this._queue = [];
         if (this._context) {
-            this._context.close().catch(() => {});
+            this._context.close().catch(err => console.warn('AudioContext close error:', err));
             this._context = null;
         }
         this._playing = false;

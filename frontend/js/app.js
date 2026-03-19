@@ -29,7 +29,7 @@ let sessionStats = {
     lowestConfidence: 100,
     citedDocs: {},
     groundedCount: 0,
-    ungroupedCount: 0,
+    ungroundedCount: 0,
     startTime: Date.now(),
 };
 
@@ -157,12 +157,26 @@ function addMsg(role, text) {
     if (role === 'agent') currentAgentMsg = div;
 }
 
+let _pendingAgentText = null;
+let _rafPending = false;
+
 function updateAgentMsg(newText, fullText) {
     if (!currentAgentMsg || currentAgentMsg.querySelector('.msg__label').textContent !== 'GroundTruth') {
         addMsg('agent', '');
     }
-    currentAgentMsg.querySelector('.msg__bubble').innerHTML = fmtCitations(esc(fullText || newText));
-    dom.chat.scrollTop = dom.chat.scrollHeight;
+    // Batch DOM updates with requestAnimationFrame to avoid per-token reflows
+    _pendingAgentText = fullText || newText;
+    if (!_rafPending) {
+        _rafPending = true;
+        requestAnimationFrame(() => {
+            if (currentAgentMsg && _pendingAgentText !== null) {
+                currentAgentMsg.querySelector('.msg__bubble').innerHTML = fmtCitations(esc(_pendingAgentText));
+                dom.chat.scrollTop = dom.chat.scrollHeight;
+            }
+            _pendingAgentText = null;
+            _rafPending = false;
+        });
+    }
 }
 
 function addGroundingBadge(v) {
@@ -267,9 +281,6 @@ function createConfidenceMeter(conf) {
 
     wrapper.appendChild(infoBtn);
     wrapper.appendChild(tooltip);
-
-    // Close tooltip when clicking elsewhere
-    document.addEventListener('click', () => tooltip.classList.remove('show'), { once: true });
 
     return wrapper;
 }
@@ -474,10 +485,10 @@ async function uploadFile(file) {
             addAudit(`Uploaded: ${data.name} (${data.chunks} chunks)`);
             // Push document content into the active Gemini session
             wsSend({ type: 'doc_update' });
-            // Fetch document health score, auto-tags, heatmap (async)
+            // Fetch health immediately; tags/heatmap poll until data is ready
             fetchDocHealth(data.doc_id);
-            setTimeout(() => fetchAutoTags(data.doc_id), 1500);
-            setTimeout(() => fetchHeatmap(data.doc_id), 2000);
+            pollUntilReady(() => fetchAutoTags(data.doc_id));
+            pollUntilReady(() => fetchHeatmap(data.doc_id));
         } else {
             alert(`Upload failed: ${data.detail}`);
         }
@@ -614,6 +625,18 @@ function fmtCitations(t) {
 
 function trunc(s, n) { return s.length > n ? s.slice(0, n) + '...' : s; }
 
+/**
+ * Poll fn() with exponential backoff until it returns a truthy result.
+ * Avoids fragile hardcoded setTimeout delays for post-upload async data.
+ */
+async function pollUntilReady(fn, { maxAttempts = 5, baseDelayMs = 800 } = {}) {
+    for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(r => setTimeout(r, baseDelayMs * Math.pow(1.5, i)));
+        const result = await fn();
+        if (result) return result;
+    }
+}
+
 function abTo64(buf) {
     const bytes = new Uint8Array(buf);
     let bin = '';
@@ -639,7 +662,7 @@ function trackSessionStats(validation) {
     if (conf > sessionStats.highestConfidence) sessionStats.highestConfidence = conf;
     if (conf < sessionStats.lowestConfidence && conf > 0) sessionStats.lowestConfidence = conf;
     if (validation.status === 'grounded') sessionStats.groundedCount++;
-    else if (validation.status === 'ungrounded') sessionStats.ungroupedCount++;
+    else if (validation.status === 'ungrounded') sessionStats.ungroundedCount++;
     if (validation.cited_sources) {
         validation.cited_sources.forEach(s => {
             sessionStats.citedDocs[s] = (sessionStats.citedDocs[s] || 0) + 1;
@@ -738,9 +761,12 @@ async function fetchAutoTags(docId) {
         const res = await fetch(`${API}/api/documents/${docId}/insights`);
         if (res.ok) {
             const data = await res.json();
-            renderDocTags(docId, data.keywords || data.top_keywords || []);
+            const kws = data.keywords || data.top_keywords || [];
+            renderDocTags(docId, kws);
+            return kws.length > 0;
         }
     } catch (e) { /* non-critical */ }
+    return false;
 }
 
 function renderDocTags(docId, keywords) {
@@ -800,8 +826,10 @@ async function fetchHeatmap(docId) {
         if (res.ok) {
             const data = await res.json();
             renderHeatmap(docId, data);
+            return true;
         }
     } catch (e) { /* non-critical */ }
+    return false;
 }
 
 function renderHeatmap(docId, data) {
@@ -993,6 +1021,12 @@ if (btnExpandPanel) btnExpandPanel.addEventListener('click', toggleRightPanel);
 // ============================================================
 // Initialize
 // ============================================================
+
+// Single delegated listener to close confidence tooltips — avoids per-message listener leak
+document.addEventListener('click', () => {
+    document.querySelectorAll('.confidence-tooltip.show').forEach(t => t.classList.remove('show'));
+});
+
 initTheme();
 initPanelState();
 connect();

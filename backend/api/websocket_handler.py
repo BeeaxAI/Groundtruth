@@ -64,6 +64,9 @@ class LiveSessionHandler:
         self._last_user_query = ""
         self._active = False
         self._session_alive = False
+        self._state_lock = asyncio.Lock()  # protects transcript + citations
+
+        self._MAX_TRANSCRIPT_CHARS = 50_000  # 50KB cap to prevent OOM
 
     async def run(self):
         """Main session lifecycle."""
@@ -212,11 +215,16 @@ class LiveSessionHandler:
 
                 # Output transcription (what Gemini says)
                 if content.output_transcription and content.output_transcription.text:
-                    self._accumulated_transcript += content.output_transcription.text
+                    async with self._state_lock:
+                        self._accumulated_transcript += content.output_transcription.text
+                        # Cap to prevent unbounded memory growth on long sessions
+                        if len(self._accumulated_transcript) > self._MAX_TRANSCRIPT_CHARS:
+                            self._accumulated_transcript = self._accumulated_transcript[-self._MAX_TRANSCRIPT_CHARS:]
+                        full = self._accumulated_transcript
                     await self._send({
                         "type": "transcript_output",
                         "text": content.output_transcription.text,
-                        "full_text": self._accumulated_transcript,
+                        "full_text": full,
                     })
 
                 # Input transcription (what user said)
@@ -234,8 +242,9 @@ class LiveSessionHandler:
 
                 # Interrupted by user
                 if content.interrupted:
-                    self._accumulated_transcript = ""
-                    self._last_citations = []
+                    async with self._state_lock:
+                        self._accumulated_transcript = ""
+                        self._last_citations = []
                     await self._send({"type": "interrupted"})
 
         except asyncio.CancelledError:
@@ -247,28 +256,26 @@ class LiveSessionHandler:
     async def _handle_turn_complete(self):
         has_docs = self.doc_service.has_documents()
 
-        if self._accumulated_transcript and self._last_citations:
+        async with self._state_lock:
+            transcript = self._accumulated_transcript
+            citations = list(self._last_citations)
+            user_query = self._last_user_query
+
+        if transcript and citations:
             # Record citation hits for hallucination heatmap
-            for c in self._last_citations:
+            for c in citations:
                 self.doc_service.record_citation(c.chunk_id)
 
             # We have both a response and citations — validate grounding
-            validation = self.grounding.validate_response(
-                self._accumulated_transcript, self._last_citations
-            )
-            confidence = self.grounding.compute_confidence(
-                validation, self._last_citations
-            )
-            self.grounding.log_query(
-                self._accumulated_transcript, self._last_citations, True, validation,
-                self._accumulated_transcript,
-            )
+            validation = self.grounding.validate_response(transcript, citations)
+            confidence = self.grounding.compute_confidence(validation, citations)
+            self.grounding.log_query(transcript, citations, True, validation, transcript)
 
             validation_dict = validation.to_dict()
             validation_dict["confidence"] = confidence
 
             # Record knowledge gap if confidence is low or status is ungrounded
-            gap_query = self._last_user_query or self._accumulated_transcript
+            gap_query = user_query or transcript
             conf_score = confidence.get("score", 100) if isinstance(confidence, dict) else confidence
             gap_status = validation_dict.get("status", "")
             self.doc_service.record_gap(
@@ -278,18 +285,16 @@ class LiveSessionHandler:
             )
 
             # Generate smart follow-up suggestions
-            follow_ups = self.doc_service.generate_follow_ups(
-                self._accumulated_transcript, self._last_citations
-            )
+            follow_ups = self.doc_service.generate_follow_ups(transcript, citations)
 
             await self._send({
                 "type": "turn_complete",
                 "validation": validation_dict,
                 "follow_ups": follow_ups,
             })
-        elif self._accumulated_transcript and has_docs:
+        elif transcript and has_docs:
             # Gemini responded, docs exist but no specific citations matched.
-            gap_query = self._last_user_query or self._accumulated_transcript
+            gap_query = user_query or transcript
             self.doc_service.record_gap(
                 query=gap_query, confidence_score=10, status="no_match",
             )
@@ -303,7 +308,7 @@ class LiveSessionHandler:
             status = "no_match" if has_docs else "no_context"
             reason = ("No matching content found in uploaded documents"
                       if has_docs else "No documents uploaded")
-            gap_query = self._last_user_query or self._accumulated_transcript
+            gap_query = user_query or transcript
             if gap_query:
                 self.doc_service.record_gap(
                     query=gap_query, confidence_score=0, status=status,
@@ -313,9 +318,10 @@ class LiveSessionHandler:
                 "confidence": {"score": 0, "level": "none", "breakdown": {}},
             }})
 
-        self._accumulated_transcript = ""
-        self._last_citations = []
-        self._last_user_query = ""
+        async with self._state_lock:
+            self._accumulated_transcript = ""
+            self._last_citations = []
+            self._last_user_query = ""
 
     # ---- Phase 13: Audio Streaming (Client → Gemini) ----
 
@@ -356,14 +362,16 @@ class LiveSessionHandler:
             }})
             return
 
-        self._last_user_query = clean_text
+        async with self._state_lock:
+            self._last_user_query = clean_text
         relevant = await self.doc_service.search_hybrid(clean_text, top_k=self.settings.max_retrieval_chunks)
         grounded_prompt, citations, has_context = self.grounding.build_grounded_prompt(
             clean_text, relevant, max_context_chars=self.settings.max_context_chars,
             has_documents=self.doc_service.has_documents(),
         )
 
-        self._last_citations = citations
+        async with self._state_lock:
+            self._last_citations = citations
 
         try:
             await asyncio.wait_for(
@@ -415,7 +423,8 @@ class LiveSessionHandler:
             has_documents=True,
         )
 
-        self._last_citations = citations
+        async with self._state_lock:
+            self._last_citations = citations
 
         if has_context:
             try:

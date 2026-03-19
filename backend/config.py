@@ -6,7 +6,7 @@ Supports .env files, environment variables, and defaults.
 
 from pathlib import Path
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from typing import Optional
 
 
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8080, ge=1, le=65535)
     debug: bool = Field(default=False)
-    cors_origins: list[str] = Field(default=["*"])
+    cors_origins: list[str] = Field(default=["http://localhost:8080"])
 
     # --- Document Processing ---
     chunk_size: int = Field(default=500, ge=100, le=5000)
@@ -75,6 +75,20 @@ class Settings(BaseSettings):
         if v >= chunk_size:
             raise ValueError("chunk_overlap must be less than chunk_size")
         return v
+
+    @model_validator(mode="after")
+    def retrieval_fits_context(self) -> "Settings":
+        # Warn if max_retrieval_chunks * chunk_size would exceed max_context_chars.
+        # A single worst-case chunk is chunk_size chars; if N chunks fill context, log it.
+        worst_case = self.max_retrieval_chunks * self.chunk_size
+        if worst_case > self.max_context_chars:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"max_retrieval_chunks ({self.max_retrieval_chunks}) × chunk_size ({self.chunk_size}) "
+                f"= {worst_case} chars may exceed max_context_chars ({self.max_context_chars}). "
+                "Some chunks will be silently truncated during retrieval."
+            )
+        return self
 
     model_config = {
         "env_file": ".env",

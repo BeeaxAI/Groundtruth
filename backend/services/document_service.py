@@ -62,7 +62,7 @@ class DocumentService:
     def total_chunks(self) -> int:
         return sum(len(d.chunks) for d in self._documents.values())
 
-    def ingest(self, filename: str, content_bytes: bytes) -> dict:
+    async def ingest(self, filename: str, content_bytes: bytes) -> dict:
         if len(self._documents) >= self.max_documents:
             raise ValueError(
                 f"Maximum {self.max_documents} documents allowed. Remove some first.")
@@ -107,21 +107,10 @@ class DocumentService:
         # Phase 4: Index for BM25 retrieval
         self.retriever.add_chunks(chunks)
 
-        # Super Memory: index into compressed memory (async)
+        # Super Memory: index into compressed memory (awaited to avoid race conditions)
         if self.super_memory:
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # We're inside an async context — schedule as task
-                    asyncio.create_task(
-                        self.super_memory.index_document(
-                            doc_id, filename, chunks)
-                    )
-                else:
-                    loop.run_until_complete(
-                        self.super_memory.index_document(
-                            doc_id, filename, chunks)
-                    )
+                await self.super_memory.index_document(doc_id, filename, chunks)
             except Exception as e:
                 logger.warning(
                     f"Super Memory indexing failed (BM25 still active): {e}")
@@ -444,7 +433,9 @@ class DocumentService:
             )
 
         # 3. Embedding Coverage (25%) — chunks with semantic embeddings
-        if self.super_memory and self.super_memory._embedding_enabled:
+        if (self.super_memory and self.super_memory._embedding_enabled
+                and self.super_memory.embeddings is not None
+                and hasattr(self.super_memory.embeddings, '_embeddings')):
             embedded = sum(
                 1 for c in doc.chunks
                 if c.chunk_id in self.super_memory.embeddings._embeddings
@@ -592,6 +583,9 @@ class DocumentService:
             "status": status,
             "timestamp": datetime.utcnow().isoformat(),
         })
+        # Keep bounded to prevent unbounded memory growth
+        if len(self._knowledge_gaps) > 500:
+            self._knowledge_gaps = self._knowledge_gaps[-250:]
         logger.info(
             f"Knowledge gap recorded: status={status}, "
             f"confidence={confidence_score}, query='{query[:80]}'"

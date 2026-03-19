@@ -146,12 +146,23 @@ class BinaryEmbeddingStore:
 
     @property
     def compression_ratio(self) -> float:
-        """How much smaller than float32 storage."""
+        """How much smaller than float32 storage (always 32x for binary quantization).
+
+        Derivation:
+          packed_bytes = dim / 8
+          float32_bytes = dim * 4
+          ratio = float32_bytes / packed_bytes = (dim * 4) / (dim / 8) = 32
+        """
         if not self._embeddings:
             return 0.0
+        # For any embedding dimension d:
+        #   float32 size = d * 4 bytes
+        #   binary packed = d / 8 bytes
+        #   ratio = 32x (constant for binary quantization)
         sample = next(iter(self._embeddings.values()))
-        float_size = len(sample.bits) * 8 * 4  # bits × 4 bytes per float
-        return float_size / len(sample.bits)
+        float32_bytes = len(sample.bits) * 8 * 4  # packed_bytes * 8 bits/byte * 4 bytes/float
+        binary_bytes = len(sample.bits)
+        return float(float32_bytes) / binary_bytes  # always 32.0
 
 
 # ============================================================
@@ -325,7 +336,10 @@ class SimHash:
         """
         tokens = tokenize(text) if text else []
         if not tokens:
-            return 0
+            # Return a hash of the raw text (or empty string) so two empty/stopword-only
+            # documents don't collide on fingerprint 0 and appear as near-duplicates.
+            fallback = int(hashlib.md5((text or "").encode()).hexdigest()[:16], 16)
+            return fallback & ((1 << SimHash.HASH_BITS) - 1)
 
         tf = Counter(tokens)
         v = [0.0] * SimHash.HASH_BITS

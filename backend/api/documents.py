@@ -38,7 +38,7 @@ async def upload_document(file: UploadFile = File(...)):
         )
 
     try:
-        result = _doc_service.ingest(file.filename, content_bytes)
+        result = await _doc_service.ingest(file.filename, content_bytes)
         return result
     except ValueError as e:
         raise HTTPException(400, str(e))

@@ -56,7 +56,9 @@ export class CameraEngine {
         this.canvas.toBlob(
             (blob) => {
                 if (!blob || !this.active) return;
-                blob.arrayBuffer().then(buf => this.onFrame(buf));
+                blob.arrayBuffer()
+                    .then(buf => this.onFrame(buf))
+                    .catch(err => console.warn('Camera frame encode error:', err));
             },
             'image/jpeg',
             0.7
