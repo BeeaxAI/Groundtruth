@@ -11,10 +11,11 @@ from contextlib import asynccontextmanager
 # Ensure backend is on path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from fastapi import FastAPI, WebSocket  # noqa: E402
+from fastapi import FastAPI, WebSocket, Request  # noqa: E402
+from fastapi.responses import HTMLResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
-from fastapi.responses import HTMLResponse  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from utils.security import verify_api_key, get_rate_limiter  # noqa: E402
 
 from config import get_settings  # noqa: E402
 from services.document_service import DocumentService  # noqa: E402
@@ -89,9 +90,49 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
+
+_rate_limiter = get_rate_limiter(
+    max_requests=settings.rate_limit_rpm, window_seconds=60
+)
+
+# Paths that don't require auth (frontend + OpenAPI docs)
+_PUBLIC_PREFIXES = ("/", "/static", "/docs", "/openapi.json", "/redoc")
+
+
+@app.middleware("http")
+async def auth_and_rate_limit(request: Request, call_next):
+    path = request.url.path
+
+    # Skip auth for public paths
+    is_public = any(
+        path == p or path.startswith(p + "/")
+        for p in _PUBLIC_PREFIXES
+    )
+
+    if not is_public:
+        # API key check (skipped when api_key is empty — dev mode)
+        if settings.api_key:
+            provided = request.headers.get("X-API-Key", "")
+            if not verify_api_key(provided, settings.api_key):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or missing API key"},
+                )
+
+        # Rate limiting by client IP
+        client_ip = request.client.host if request.client else "unknown"
+        allowed, remaining = _rate_limiter.check(client_ip)
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Rate limit exceeded. Try again later."},
+                headers={"Retry-After": "60"},
+            )
+
+    return await call_next(request)
 
 # Register REST routes
 app.include_router(doc_api.router)
@@ -109,7 +150,19 @@ if FRONTEND_DIR.exists():
 
 # --- WebSocket ---
 @app.websocket("/ws/live")
-async def websocket_live(ws: WebSocket):
+async def websocket_live(ws: WebSocket, api_key: str = ""):
+    # Auth check before accepting the connection
+    if settings.api_key and not verify_api_key(api_key, settings.api_key):
+        await ws.close(code=1008, reason="Invalid or missing API key")
+        return
+
+    # Rate limit by client IP before upgrading
+    client_ip = ws.client.host if ws.client else "unknown"
+    allowed, _ = _rate_limiter.check(client_ip)
+    if not allowed:
+        await ws.close(code=1008, reason="Rate limit exceeded")
+        return
+
     handler = LiveSessionHandler(
         ws=ws,
         gemini_client=gemini_client,

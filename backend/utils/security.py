@@ -3,8 +3,8 @@ Phase 7: Security layer — prompt injection defense & input sanitization.
 Enterprise-grade security for AI applications.
 """
 
+import hmac
 import re
-import html
 import logging
 import time
 from collections import defaultdict
@@ -107,3 +107,22 @@ class RateLimiter:
                       if all(t <= cutoff for t in v)]
         for k in empty_keys:
             del self._requests[k]
+
+
+def verify_api_key(provided: str, expected: str) -> bool:
+    """Constant-time comparison to prevent timing attacks."""
+    if not expected:
+        return True  # Auth disabled
+    return hmac.compare_digest(provided.encode(), expected.encode())
+
+
+# Module-level singleton — shared across the whole process.
+_rate_limiter: Optional[RateLimiter] = None
+
+
+def get_rate_limiter(max_requests: int = 30, window_seconds: int = 60) -> RateLimiter:
+    global _rate_limiter
+    if _rate_limiter is None:
+        _rate_limiter = RateLimiter(
+            max_requests=max_requests, window_seconds=window_seconds)
+    return _rate_limiter

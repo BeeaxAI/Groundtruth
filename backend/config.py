@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     max_query_length: int = Field(default=5000)
     rate_limit_rpm: int = Field(default=30)
     enable_audit_log: bool = Field(default=True)
+    api_key: str = Field(
+        default="",
+        description="Optional API key required on all /api/* and /ws/* routes. "
+                    "Empty string disables auth (dev mode only).",
+    )
+    max_ws_message_bytes: int = Field(
+        default=10 * 1024 * 1024,  # 10 MB
+        description="Maximum WebSocket message size in bytes",
+    )
 
     # --- Paths ---
     base_dir: Path = Field(

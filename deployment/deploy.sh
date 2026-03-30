@@ -13,6 +13,7 @@ REGION="${GCP_REGION:-us-central1}"
 SERVICE_NAME="groundtruth"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 GOOGLE_API_KEY="${GOOGLE_API_KEY:?Set GOOGLE_API_KEY}"
+SECRET_NAME="groundtruth-google-api-key"
 
 echo "=========================================="
 echo " GroundTruth Deployment"
@@ -30,8 +31,19 @@ gcloud services enable \
     containerregistry.googleapis.com \
     artifactregistry.googleapis.com \
     aiplatform.googleapis.com \
+    secretmanager.googleapis.com \
     --project="${PROJECT_ID}" \
     --quiet
+
+# Store the API key in Secret Manager (create or update)
+echo "  Storing API key in Secret Manager as '${SECRET_NAME}'..."
+if gcloud secrets describe "${SECRET_NAME}" --project="${PROJECT_ID}" &>/dev/null; then
+    echo -n "${GOOGLE_API_KEY}" | gcloud secrets versions add "${SECRET_NAME}" \
+        --data-file=- --project="${PROJECT_ID}"
+else
+    echo -n "${GOOGLE_API_KEY}" | gcloud secrets create "${SECRET_NAME}" \
+        --data-file=- --replication-policy=automatic --project="${PROJECT_ID}"
+fi
 
 # =============================================
 # Step 2: Build container image
@@ -60,7 +72,8 @@ gcloud run deploy "${SERVICE_NAME}" \
     --min-instances=0 \
     --max-instances=5 \
     --timeout=300 \
-    --set-env-vars="GOOGLE_API_KEY=${GOOGLE_API_KEY},GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
+    --set-secrets="GOOGLE_API_KEY=${SECRET_NAME}:latest" \
     --quiet
 
 # =============================================

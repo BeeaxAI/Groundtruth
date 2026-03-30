@@ -102,7 +102,7 @@ async def text_query(request: QueryRequest):
 
     except Exception as e:
         logger.error(f"Gemini query failed: {e}", exc_info=True)
-        raise HTTPException(500, f"Query failed: {str(e)}")
+        raise HTTPException(500, "Query failed. Please try again.")
 
 
 @router.get("/health")

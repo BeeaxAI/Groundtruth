@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 MAX_TEXT_LENGTH = 500_000  # ~125K tokens max
 
+# Magic bytes for binary formats
+_MAGIC = {
+    ".pdf":  b"%PDF",
+    ".docx": b"PK\x03\x04",  # ZIP container
+}
+
 
 @dataclass
 class ExtractionResult:
@@ -43,6 +49,14 @@ class TextExtractor:
             ".pdf": self._extract_pdf,
             ".docx": self._extract_docx,
         }
+
+        # Verify magic bytes for binary formats
+        expected_magic = _MAGIC.get(ext)
+        if expected_magic and not content_bytes.startswith(expected_magic):
+            raise ValueError(
+                f"File content does not match the declared type '{ext}'. "
+                "Please upload a valid file."
+            )
 
         result = extractors[ext](content_bytes)
         result.file_type = ext.lstrip(".")

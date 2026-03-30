@@ -10,7 +10,21 @@ import { CameraEngine } from './camera-engine.js';
 // State
 // ============================================================
 const API = window.location.origin;
-const WS_URL = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/live`;
+
+// Optional API key — set via localStorage.setItem('groundtruth_api_key', 'your-key')
+// Required only when the server has API_KEY configured.
+const _API_KEY = localStorage.getItem('groundtruth_api_key') || '';
+const WS_URL = (() => {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const base = `${proto}//${location.host}/ws/live`;
+    return _API_KEY ? `${base}?api_key=${encodeURIComponent(_API_KEY)}` : base;
+})();
+
+function apiFetch(url, opts = {}) {
+    const headers = { ...(opts.headers || {}) };
+    if (_API_KEY) headers['X-API-Key'] = _API_KEY;
+    return fetch(url, { ...opts, headers });
+}
 
 let ws = null;
 let recorder = null;
@@ -329,7 +343,7 @@ async function sendTextQuery(text) {
 
     // REST fallback
     try {
-        const res = await fetch(`${API}/api/query`, {
+        const res = await apiFetch(`\${API}/api/query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query: text }),
@@ -477,7 +491,7 @@ async function uploadFile(file) {
     const form = new FormData();
     form.append('file', file);
     try {
-        const res = await fetch(`${API}/api/documents/upload`, { method: 'POST', body: form });
+        const res = await apiFetch(`\${API}/api/documents/upload`, { method: 'POST', body: form });
         const data = await res.json();
         if (res.ok) {
             addDocItem(data);
@@ -499,7 +513,7 @@ async function uploadFile(file) {
 
 async function loadDocuments() {
     try {
-        const res = await fetch(`${API}/api/documents`);
+        const res = await apiFetch(`\${API}/api/documents`);
         const data = await res.json();
         data.documents.forEach(d => addDocItem(d));
         refreshDocCount();
@@ -529,7 +543,7 @@ function addDocItem(doc) {
 }
 
 async function removeDoc(id, el) {
-    await fetch(`${API}/api/documents/${id}`, { method: 'DELETE' });
+    await apiFetch(`\${API}/api/documents/${id}`, { method: 'DELETE' });
     el.remove();
     refreshDocCount();
     if (!dom.docList.querySelector('.doc-item')) dom.emptyDocs.style.display = '';
@@ -546,7 +560,7 @@ function refreshDocCount() {
 // ============================================================
 async function fetchDocHealth(docId) {
     try {
-        const res = await fetch(`${API}/api/documents/${docId}/health`);
+        const res = await apiFetch(`\${API}/api/documents/${docId}/health`);
         if (res.ok) {
             const health = await res.json();
             updateDocHealth(docId, health);
@@ -556,7 +570,7 @@ async function fetchDocHealth(docId) {
 
 async function fetchAllDocHealth() {
     try {
-        const res = await fetch(`${API}/api/documents/health`);
+        const res = await apiFetch(`\${API}/api/documents/health`);
         if (res.ok) {
             const data = await res.json();
             for (const [docId, health] of Object.entries(data.scores)) {
@@ -758,7 +772,7 @@ function exportConversation() {
 // ============================================================
 async function fetchAutoTags(docId) {
     try {
-        const res = await fetch(`${API}/api/documents/${docId}/insights`);
+        const res = await apiFetch(`\${API}/api/documents/${docId}/insights`);
         if (res.ok) {
             const data = await res.json();
             const kws = data.keywords || data.top_keywords || [];
@@ -822,7 +836,7 @@ function setupCitationDeepLinks() {
 // ============================================================
 async function fetchHeatmap(docId) {
     try {
-        const res = await fetch(`${API}/api/documents/${docId}/heatmap`);
+        const res = await apiFetch(`\${API}/api/documents/${docId}/heatmap`);
         if (res.ok) {
             const data = await res.json();
             renderHeatmap(docId, data);
@@ -871,7 +885,7 @@ function fetchAllHeatmaps() {
 // ============================================================
 async function fetchKnowledgeGaps() {
     try {
-        const res = await fetch(`${API}/api/documents/gaps`);
+        const res = await apiFetch(`\${API}/api/documents/gaps`);
         if (res.ok) {
             const data = await res.json();
             renderKnowledgeGaps(data);

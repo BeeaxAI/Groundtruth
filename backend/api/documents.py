@@ -43,10 +43,11 @@ async def upload_document(file: UploadFile = File(...)):
     except ValueError as e:
         raise HTTPException(400, str(e))
     except ImportError as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Missing dependency: {e}", exc_info=True)
+        raise HTTPException(500, "A required document-processing library is not installed.")
     except Exception as e:
         logger.error(f"Upload failed: {e}", exc_info=True)
-        raise HTTPException(500, f"Failed to process document: {str(e)}")
+        raise HTTPException(500, "Failed to process document.")
 
 
 @router.get("")

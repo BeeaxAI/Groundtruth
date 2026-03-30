@@ -87,7 +87,7 @@ class LiveSessionHandler:
             logger.info("WebSocket client disconnected")
         except Exception as e:
             logger.error(f"WebSocket session error: {e}", exc_info=True)
-            await self._send_safe({"type": "error", "message": str(e)})
+            await self._send_safe({"type": "error", "message": "Session error. Please refresh."})
         finally:
             await self._cleanup()
 
@@ -413,8 +413,13 @@ class LiveSessionHandler:
         if not self.doc_service.has_documents():
             return
 
+        from utils.security import InputSanitizer
+        clean_speech, _ = InputSanitizer().sanitize_query(user_speech)
+        if not clean_speech:
+            return
+
         relevant = self.doc_service.search(
-            user_speech, top_k=self.settings.max_retrieval_chunks)
+            clean_speech, top_k=self.settings.max_retrieval_chunks)
         if not relevant:
             return
 
@@ -468,10 +473,24 @@ class LiveSessionHandler:
 
     # ---- Main Client Message Router ----
 
+    # 10 MB default; overridden by settings.max_ws_message_bytes if available
+    _MAX_MSG_BYTES = 10 * 1024 * 1024
+
     async def _receive_from_client(self):
+        max_bytes = getattr(self.settings, "max_ws_message_bytes", self._MAX_MSG_BYTES)
         while self._active:
             raw = await self.ws.receive_text()
-            msg = json.loads(raw)
+
+            if len(raw.encode()) > max_bytes:
+                await self._send({"type": "error", "message": "Message too large."})
+                continue
+
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                await self._send({"type": "error", "message": "Invalid message format."})
+                continue
+
             msg_type = msg.get("type", "")
 
             if msg_type == "audio":
